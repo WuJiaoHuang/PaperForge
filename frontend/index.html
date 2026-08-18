@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PaperForge 论文工坊 · 毕设论文生成助手</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">✒️</div>
+      <div class="brand-text">
+        <div class="brand-name">PaperForge <span class="brand-cn">论文工坊</span></div>
+        <div class="brand-sub">毕业设计论文生成助手 · 选题 · 写作 · 导出</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="modeBadge" class="badge">本地模板模式</span>
+      <label class="ai-toggle" for="useAi">
+        <input type="checkbox" id="useAi" disabled />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">DeepSeek AI</span>
+      </label>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel form-panel">
+      <div class="step-head">
+        <span class="step-no">1</span>
+        <div><h2>填写研究方向</h2><p class="step-sub">关键词越具体,题目越贴切</p></div>
+      </div>
+      <label class="field-label" for="keywords">研究方向关键词</label>
+      <input id="keywords" class="text-input" type="text" placeholder="如:校园二手交易、高校图书馆" />
+      <div class="hint-row">
+        <span class="hint-label">试试:</span>
+        <button class="hint-chip" data-kw="校园二手交易" type="button">校园二手交易</button>
+        <button class="hint-chip" data-kw="高校图书馆" type="button">高校图书馆</button>
+        <button class="hint-chip" data-kw="医院门诊挂号" type="button">医院门诊挂号</button>
+      </div>
+
+      <div class="step-head mt">
+        <span class="step-no">2</span>
+        <div><h2>选择技术栈</h2><p class="step-sub">可多选,支持自定义</p></div>
+      </div>
+      <div id="techChips" class="chips"></div>
+      <div class="custom-tech">
+        <input id="customTech" class="text-input" type="text" placeholder="自定义技术,回车添加" />
+        <button id="addTech" class="btn btn-ghost" type="button">添加</button>
+      </div>
+
+      <div class="step-head mt">
+        <span class="step-no">3</span>
+        <div><h2>生成设置</h2></div>
+      </div>
+      <div class="row-2">
+        <div>
+          <div class="field-label">字数档位</div>
+          <select id="wordLevel" class="select">
+            <option value="small">约 8000 字</option>
+            <option value="medium" selected>约 10000 字</option>
+            <option value="large">约 15000 字</option>
+          </select>
+        </div>
+        <div>
+          <div class="field-label">行文风格</div>
+          <select id="style" class="select">
+            <option value="严谨学术">严谨学术</option>
+            <option value="平实工程">平实工程</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-label" for="title">论文题目(选题后自动填入,可修改)</div>
+      <input id="title" class="text-input" type="text" placeholder="生成题目建议并选择,或直接输入自定义题目" />
+
+      <div class="actions">
+        <button id="demoBtn" class="btn btn-demo" type="button">✨ 演示模式</button>
+        <button id="suggestBtn" class="btn btn-secondary" type="button">🎯 生成题目建议</button>
+      </div>
+      <button id="genBtn" class="btn btn-primary btn-block" type="button">开始生成论文</button>
+
+      <div id="historyWrap" class="history hidden">
+        <h3>本地历史(最近 5 次)</h3>
+        <ul id="historyList" class="history-list"></ul>
+      </div>
+    </aside>
+
+    <section class="panel main-panel">
+      <div id="topicView" class="topic-view">
+        <div class="view-head">
+          <div>
+            <h2>题目建议</h2>
+            <p id="topicHint" class="step-sub">点击左侧「生成题目建议」,为你推荐 4 个可落地的毕设题目</p>
+          </div>
+          <button id="refreshBtn" class="btn btn-secondary hidden" type="button">↻ 换一批</button>
+        </div>
+        <div id="topicGrid" class="topic-grid">
+          <div id="topicEmpty" class="empty-state">
+            <div class="empty-icon">🎯</div>
+            <p>还没有题目建议</p>
+            <p class="step-sub">填写研究方向与技术栈后,点击「生成题目建议」</p>
+          </div>
+        </div>
+        <div id="topicNote" class="note hidden"></div>
+        <div id="topicFooter" class="topic-footer hidden">
+          <div id="selectedTopicBar" class="selected-bar hidden">
+            <span class="selected-label">已选题目</span>
+            <span id="selectedTopicText" class="selected-text"></span>
+            <button id="clearTopicBtn" class="btn-link" type="button">清除</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="progressWrap" class="progress-wrap hidden">
+        <div class="progress-meta">
+          <span id="progressText">准备中…</span>
+          <span id="wordCount"></span>
+        </div>
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+        <div id="stageList" class="stage-list"></div>
+      </div>
+
+      <div id="resultWrap" class="result hidden">
+        <div class="result-head">
+          <div>
+            <h2 id="paperTitle"></h2>
+            <span id="paperMeta" class="meta"></span>
+          </div>
+          <div class="export-actions">
+            <button id="exportWord" class="btn btn-primary" type="button">导出 Word</button>
+            <button id="exportMd" class="btn btn-ghost" type="button">下载 MD</button>
+            <button id="copyBtn" class="btn btn-ghost" type="button">复制全文</button>
+          </div>
+        </div>
+        <div id="designPanel" class="design-panel"></div>
+        <div class="doc-layout">
+          <nav id="toc" class="toc"></nav>
+          <div id="chapters" class="chapters"></div>
+        </div>
+        <div id="chartPanel" class="chart-panel"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    免责声明:系统生成的论文与图表均为 AI 辅助初稿,仅供写作参考,需人工核实后使用。
+  </footer>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
