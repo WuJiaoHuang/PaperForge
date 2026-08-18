@@ -7,7 +7,17 @@ const TECH_PRESETS = [
 const DEFAULT_TECHS = ["SpringBoot", "Vue", "MySQL", "Redis"];
 const HISTORY_KEY = "paperforge_v1_history";
 
-const state = { payload: null, topics: [], batch: 0, selectedTopic: null, revealTimer: null };
+const state = {
+  payload: null,
+  topics: [],
+  batch: 0,
+  selectedTopic: null,
+  pollTimer: null,
+  stageEls: [],
+  renderedChapters: new Set(),
+  designShown: false,
+};
+const STAGE_NAMES = ["系统设定", "摘要", "Abstract", "绪论", "相关技术", "需求分析", "系统设计", "系统实现", "系统测试", "总结展望", "参考文献致谢"];
 const $ = (id) => document.getElementById(id);
 
 /* ---------- 技术栈 chips ---------- */
@@ -244,33 +254,35 @@ function mdToHtml(md) {
   return html;
 }
 
-/* ---------- 生成 ---------- */
+/* ---------- 生成(实时展示) ---------- */
 async function generate() {
   const title = $("title").value.trim();
   if (!title) { alert("请先选择或填写论文题目"); $("title").focus(); return; }
-  const techs = selectedTechs();
   const body = {
     title,
-    techs,
+    techs: selectedTechs(),
     word_level: $("wordLevel").value,
     style: $("style").value,
     use_ai: $("useAi").checked,
   };
   setBusy(true);
   showProgress();
-  $("progressText").textContent = "正在生成…";
-  $("progressFill").style.width = "5%";
+  $("progressText").textContent = $("useAi").checked ? "AI 逐章生成中,已生成的内容会实时显示在下方…" : "正在生成…";
+  $("progressFill").style.width = "2%";
+  initStages();
+  state.renderedChapters = new Set();
+  state.designShown = false;
   try {
-    const res = await fetch("/api/generate", {
+    const res = await fetch("/api/generate/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "生成失败");
-    state.payload = data;
-    saveHistory(data);
-    revealChapters(data);
+    const start = await res.json();
+    if (!res.ok) throw new Error(start.error || "启动生成失败");
+    const jobId = start.job_id;
+    clearInterval(state.pollTimer);
+    state.pollTimer = setInterval(() => pollJob(jobId), 800);
   } catch (err) {
     $("progressText").textContent = "生成失败:" + err.message;
     setBusy(false);
@@ -278,50 +290,90 @@ async function generate() {
 }
 $("genBtn").onclick = generate;
 
+async function pollJob(jobId) {
+  try {
+    const stRes = await fetch("/api/generate/partial/" + jobId);
+    const st = await stRes.json();
+    if (!stRes.ok) throw new Error(st.error || "获取进度失败");
+    updateStages(st.current, st.total, st.stage);
+    if (st.design && !state.designShown) {
+      renderDesign(st.design);
+      state.designShown = true;
+    }
+    const fresh = (st.chapters || []).filter((c) => !state.renderedChapters.has(c.seq));
+    if (fresh.length) {
+      appendChapters(fresh);
+      fresh.forEach((c) => state.renderedChapters.add(c.seq));
+    }
+    if (st.status === "done") {
+      clearInterval(state.pollTimer);
+      const rRes = await fetch("/api/generate/result/" + jobId);
+      const data = await rRes.json();
+      if (!rRes.ok) throw new Error(data.error || "获取结果失败");
+      state.payload = data;
+      saveHistory(data);
+      $("progressText").textContent = "生成完成";
+      $("progressFill").style.width = "100%";
+      setBusy(false);
+      setTimeout(() => renderResult(data), 350);
+    } else if (st.status === "error") {
+      clearInterval(state.pollTimer);
+      $("progressText").textContent = "生成失败:" + (st.error || "未知错误");
+      setBusy(false);
+    }
+  } catch (err) {
+    clearInterval(state.pollTimer);
+    $("progressText").textContent = "生成失败:" + err.message;
+    setBusy(false);
+  }
+}
+
 function setBusy(busy) {
   $("genBtn").disabled = busy;
   $("demoBtn").disabled = busy;
   $("suggestBtn").disabled = busy;
+  setExportEnabled(!busy);
+}
+
+function setExportEnabled(enabled) {
+  $("exportWord").disabled = !enabled;
+  $("exportMd").disabled = !enabled;
+  $("copyBtn").disabled = !enabled;
 }
 
 function showProgress() {
   $("topicView").classList.add("hidden");
-  $("resultWrap").classList.add("hidden");
   $("progressWrap").classList.remove("hidden");
-  $("stageList").innerHTML = "";
+  $("resultWrap").classList.remove("hidden");
+  $("designPanel").innerHTML = "";
+  $("chapters").innerHTML = "";
+  $("toc").innerHTML = "";
+  $("chartPanel").classList.add("hidden");
+  $("paperTitle").textContent = $("title").value.trim();
+  $("paperMeta").textContent = "正在生成,内容实时更新…";
+  setExportEnabled(false);
 }
 
-function stageName(seq) {
-  return ["摘要", "Abstract", "绪论", "相关技术", "需求分析", "系统设计", "系统实现", "系统测试", "总结展望", "参考文献致谢"][seq] || "";
-}
-
-function revealChapters(payload) {
-  const stages = payload.chapters.map((c, i) => {
+function initStages() {
+  const wrap = $("stageList");
+  wrap.innerHTML = "";
+  state.stageEls = STAGE_NAMES.map((name) => {
     const el = document.createElement("span");
     el.className = "stage";
-    el.textContent = stageName(i);
-    $("stageList").appendChild(el);
+    el.textContent = name;
+    wrap.appendChild(el);
     return el;
   });
-  const total = payload.chapters.length;
-  let i = 0;
-  clearInterval(state.revealTimer);
-  state.revealTimer = setInterval(() => {
-    if (i >= total) {
-      clearInterval(state.revealTimer);
-      $("progressText").textContent = "生成完成";
-      $("progressFill").style.width = "100%";
-      setBusy(false);
-      renderResult(payload);
-      return;
-    }
-    stages[i].classList.add("done");
-    if (i > 0) stages[i - 1].classList.remove("active");
-    stages[i].classList.add("active");
-    $("progressFill").style.width = Math.round(((i + 1) / total) * 100) + "%";
-    $("progressText").textContent = "正在生成:" + stageName(i);
-    i += 1;
-  }, 160);
+}
+
+function updateStages(current, total, stage) {
+  const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+  $("progressFill").style.width = pct + "%";
+  $("progressText").textContent =
+    current > 0 ? "正在生成:" + stage + " (" + current + "/" + total + ")" : (stage || "准备中");
+  state.stageEls.forEach((el, i) => {
+    el.className = "stage" + (i < current ? " done" : i === current ? " active" : "");
+  });
 }
 
 /* ---------- 结果渲染 ---------- */
@@ -341,6 +393,7 @@ function renderResult(payload) {
     note.textContent = payload.note;
     $("resultWrap").appendChild(note);
   }
+  setExportEnabled(true);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -363,21 +416,30 @@ function renderDesign(design) {
 }
 
 function renderChapters(chapters) {
+  $("chapters").innerHTML = "";
+  $("toc").innerHTML = "";
+  appendChapters(chapters);
+}
+
+function makeChapterCard(c) {
+  const id = "chap-" + c.seq;
+  const card = document.createElement("article");
+  card.className = "chapter";
+  card.id = id;
+  card.innerHTML = '<div class="chapter-card"><h2>' + c.title + "</h2>" + mdToHtml(c.content_md) + "</div>";
+  const link = document.createElement("a");
+  link.href = "#" + id;
+  link.textContent = c.title;
+  link.onclick = (e) => { e.preventDefault(); card.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  return { card, link };
+}
+
+function appendChapters(chapters) {
   const wrap = $("chapters");
   const toc = $("toc");
-  wrap.innerHTML = "";
-  toc.innerHTML = "";
-  chapters.forEach((c, idx) => {
-    const id = "chap-" + idx;
-    const card = document.createElement("article");
-    card.className = "chapter";
-    card.id = id;
-    card.innerHTML = '<div class="chapter-card"><h2>' + c.title + "</h2>" + mdToHtml(c.content_md) + "</div>";
+  chapters.forEach((c) => {
+    const { card, link } = makeChapterCard(c);
     wrap.appendChild(card);
-    const link = document.createElement("a");
-    link.href = "#" + id;
-    link.textContent = c.title;
-    link.onclick = (e) => { e.preventDefault(); card.scrollIntoView({ behavior: "smooth", block: "start" }); };
     toc.appendChild(link);
   });
 }

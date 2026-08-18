@@ -3,6 +3,7 @@
 
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 
@@ -24,10 +25,12 @@ def _client():
     return OpenAI(
         api_key=os.environ["DEEPSEEK_API_KEY"],
         base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        timeout=120.0,
+        max_retries=1,
     )
 
 
-def chat_json(system, user, retries=2):
+def chat_json(system, user, retries=1):
     """返回解析后的 dict/list,失败返回 None。"""
     for _ in range(retries + 1):
         try:
@@ -46,7 +49,7 @@ def chat_json(system, user, retries=2):
     return None
 
 
-def chat_md(system, user, retries=2):
+def chat_md(system, user, retries=1):
     """返回 Markdown 文本,失败返回 None。"""
     for _ in range(retries + 1):
         try:
@@ -100,11 +103,20 @@ def _chat(system, user):
     return resp.choices[0].message.content
 
 
-def generate_paper_ai(title, techs, level="medium", style="严谨学术"):
-    """用 DeepSeek 生成系统设定与各章节;任何一步失败返回 None,由调用方降级模板。"""
+def generate_paper_ai(title, techs, level="medium", style="严谨学术", on_stage=None, on_chapter=None, on_design=None):
+    """用 DeepSeek 生成系统设定与各章节;任何一步失败返回 None,由调用方降级模板。
+
+    on_stage(current, total, stage_name) 用于汇报生成进度(系统设定 1 步 + 章节 10 步)。
+    on_chapter(seq, key, title, content_md) 每完成一章回调一次,便于实时展示。
+    on_design(design) 系统设定生成后回调。
+    """
+    if on_stage:
+        on_stage(0, 11, "系统设定")
     design = _ai_system_design(title, techs)
     if not design:
         return None
+    if on_design:
+        on_design(design)
     chapters = []
     order = [
         ("summary", "摘要与关键词", "中文摘要(约300字)与关键词"),
@@ -118,30 +130,43 @@ def generate_paper_ai(title, techs, level="medium", style="严谨学术"):
         ("ch7", "第 7 章 总结与展望", "工作总结、不足与展望"),
         ("refs", "参考文献与致谢", "参考文献5条以上(GB/T 7714格式)与致谢"),
     ]
-    previous_summary = []
-    for seq, (key, title_, hint) in enumerate(order):
-        ctx = "\n".join(previous_summary[-3:])
+    system_prompt = (
+        "你是一名计算机毕业设计写作助手,负责撰写结构规范、表述严谨的中文论文初稿。"
+        "所有章节必须严格使用给定的系统设定(模块、角色、数据表名称),不得自行改名或新增。"
+    )
+
+    def build_one(item):
+        seq, (key, title_, hint) = item
         content = chat_md(
-            "你是一名计算机毕业设计写作助手,负责撰写结构规范、表述严谨的中文论文初稿。"
-            "所有章节必须严格使用给定的系统设定(模块、角色、数据表名称),不得自行改名或新增。",
+            system_prompt,
             "论文题目:%s\n技术栈:%s\n字数档位:%s\n行文风格:%s\n\n系统设定:\n%s\n\n"
-            "前文要点:\n%s\n\n请撰写「%s」,要求:%s。使用 Markdown 格式,"
+            "请撰写「%s」,要求:%s。使用 Markdown 格式,"
             "章节内用 ## 二级标题,列表用 - 或 1.,不要输出最外层的一级标题。"
-            % (
-                title,
-                ", ".join(techs),
-                level,
-                style,
-                str(design),
-                ctx,
-                title_,
-                hint,
-            ),
+            % (title, ", ".join(techs), level, style, str(design), title_, hint),
         )
-        if not content:
-            return None
-        chapters.append({"seq": seq, "key": key, "title": title_, "content_md": content})
-        previous_summary.append("%s:前3行要点 %s" % (title_, content.splitlines()[0][:80]))
+        return seq, key, title_, content
+
+    total = len(order)
+    results = {}
+    numbered = list(enumerate(order))
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(build_one, (seq, inner)): seq for seq, inner in numbered}
+        done = 0
+        for fut in as_completed(futures):
+            seq, key, title_, content = fut.result()
+            results[seq] = (key, title_, content)
+            done += 1
+            if on_stage:
+                on_stage(done, total, title_)
+            if on_chapter and content:
+                on_chapter(seq, key, title_, content)
+
+    if len(results) != total or any(content is None for _, _, content in results.values()):
+        return None
+    chapters = [
+        {"seq": seq, "key": key, "title": title_, "content_md": content}
+        for seq, (key, title_, content) in sorted(results.items())
+    ]
 
     full_md = "\n\n".join(
         "# %s\n\n%s" % (c["title"], c["content_md"]) if c["seq"] > 1 else c["content_md"]
