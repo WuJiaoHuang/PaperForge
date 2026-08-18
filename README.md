@@ -38,7 +38,7 @@ paperforge/
 
 ## 多人协作
 
-- 代码仓库:Gitee `wujiaohuang/PaperForge`(私有,成员可见)
+- 代码仓库:Gitee `PaperForgeTeam/PaperForge`(私有组织仓库,成员可见)
 - 协作规范(分支命名、提交格式、Pull Request 流程)见 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 说明
