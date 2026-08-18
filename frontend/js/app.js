@@ -72,7 +72,7 @@ async function suggestTopics() {
   if (!keywords) { alert("请先填写研究方向关键词"); $("keywords").focus(); return false; }
   const techs = selectedTechs();
   setSuggestBusy(true);
-  $("topicHint").textContent = "正在生成题目建议…";
+  $("topicHint").textContent = "正在生成备选题目…";
   try {
     const res = await fetch("/api/topics/suggest", {
       method: "POST",
@@ -94,8 +94,7 @@ async function suggestTopics() {
     const noteEl = $("topicNote");
     if (data.note) { noteEl.textContent = data.note; noteEl.classList.remove("hidden"); }
     else { noteEl.classList.add("hidden"); }
-    $("topicHint").textContent =
-      data.mode === "ai" ? "以下题目由 DeepSeek AI 生成,点击卡片选题" : "点击卡片选题,不满意可点「换一批」";
+    $("topicHint").textContent = "以下为系统推荐的备选题目,点击卡片选题;不满意可「重新生成」";
     return true;
   } catch (err) {
     $("topicHint").textContent = "生成失败:" + err.message;
@@ -111,7 +110,7 @@ function renderTopics(topics) {
   if (!topics.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.innerHTML = '<div class="empty-icon">🎯</div><p>暂无题目建议,试试「换一批」</p>';
+    empty.innerHTML = '<p class="empty-main">暂无备选题目</p><p class="field-tip">请点击「重新生成」</p>';
     grid.appendChild(empty);
     return;
   }
@@ -122,7 +121,7 @@ function renderTopics(topics) {
     const techs = (t.techs || []).map((x) => '<span class="topic-tech">' + escapeHtml(x) + "</span>").join("");
     const tags = (t.tags || []).map((x) => '<span class="topic-tag">' + escapeHtml(x) + "</span>").join("");
     card.innerHTML =
-      '<span class="topic-badge">题目 ' + (i + 1) + "</span>" +
+      '<span class="topic-badge">备选题目' + "一二三四五六".charAt(i) + "</span>" +
       "<h3>" + escapeHtml(t.title) + "</h3>" +
       '<div class="topic-techs">' + techs + "</div>" +
       '<p class="topic-desc">' + escapeHtml(t.description || "") + "</p>" +
@@ -267,7 +266,7 @@ async function generate() {
   };
   setBusy(true);
   showProgress();
-  $("progressText").textContent = $("useAi").checked ? "AI 逐章生成中,已生成的内容会实时显示在下方…" : "正在生成…";
+  $("progressText").textContent = "正在生成论文内容,已完成章节将实时显示…";
   $("progressFill").style.width = "2%";
   initStages();
   state.renderedChapters = new Set();
@@ -381,7 +380,7 @@ function renderResult(payload) {
   $("progressWrap").classList.add("hidden");
   $("resultWrap").classList.remove("hidden");
   $("paperTitle").textContent = payload.title;
-  const mode = payload.mode === "ai" ? "DeepSeek AI 生成" : "本地模板生成";
+  const mode = payload.mode === "ai" ? "智能写作生成" : "本地模板生成";
   $("paperMeta").textContent =
     mode + " · 约 " + (payload.stats?.word_count || 0) + " 字 · " + (payload.generated_at || "");
   renderDesign(payload.system_design);
@@ -530,8 +529,7 @@ async function checkAi() {
     if (data.ai_available) {
       $("useAi").disabled = false;
       $("useAi").checked = true;
-      $("modeBadge").textContent = "DeepSeek AI 已连接";
-      $("modeBadge").classList.add("ai");
+      $("statusText").textContent = "系统服务正常 · 智能写作已启用";
     }
   } catch { /* 保持默认 */ }
 }

@@ -59,7 +59,7 @@ def run_generation(req: GenerateRequest, on_stage=None, on_design=None, on_chapt
     payload = None
     note = None
     if req.use_ai and not ai_available():
-        note = "未配置 DeepSeek API Key,已使用本地模板模式"
+        note = "未配置智能写作服务,已使用本地模板模式"
     elif req.use_ai:
         payload = generate_paper_ai(
             title,
@@ -71,7 +71,7 @@ def run_generation(req: GenerateRequest, on_stage=None, on_design=None, on_chapt
             on_design=on_design,
         )
         if payload is None:
-            note = "AI 调用失败或超时,已自动降级为本地模板模式"
+            note = "智能写作服务调用失败,已自动切换为本地模板模式"
     if payload is None:
         payload = generate_paper(title, techs, req.word_level, req.style)
     payload["id"] = uuid.uuid4().hex[:10]
@@ -201,7 +201,7 @@ def suggest_topics_api(req: SuggestRequest):
         topics = suggest_topics_ai(keywords, techs, count, req.batch)
         if topics:
             return {"topics": topics, "mode": "ai"}
-        note = "AI 调用失败,已使用本地模板生成"
+        note = "智能写作服务调用失败,已使用本地模板生成"
     topics = suggest_topics(keywords, techs, count, req.batch)
     resp = {"topics": topics, "mode": "template"}
     if note:
