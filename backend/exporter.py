@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """PaperForge V0 导出:Markdown 全文拼接与 Word(python-docx)生成。"""
 
+import base64
 import re
 from io import BytesIO
 
@@ -101,6 +102,18 @@ def _render_md(doc, content):
     in_code = False
     while i < len(lines):
         line = lines[i].rstrip()
+        img_match = re.match(r"^!\[(.*?)\]\((data:image/png;base64,[A-Za-z0-9+/=]+)\)\s*$", line)
+        if img_match:
+            caption = img_match.group(1)
+            b64 = img_match.group(2).split(",", 1)[1]
+            try:
+                doc.add_picture(BytesIO(base64.b64decode(b64)), width=Inches(5.6))
+                doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                _add_para(doc, caption, align=WD_ALIGN_PARAGRAPH.CENTER, size=10.5, italic=True)
+            except Exception:
+                _add_para(doc, line, size=10)
+            i += 1
+            continue
         if line.startswith("```"):
             in_code = not in_code
             i += 1

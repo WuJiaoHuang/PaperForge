@@ -4,50 +4,53 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>论文工坊 PaperForge · 毕业设计论文写作辅助系统</title>
-  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/style.css?v=6" />
 </head>
 <body>
-  <div class="top-red"></div>
-
-  <header class="site-header">
-    <div class="container header-inner">
-      <div class="brand">
-        <div class="brand-seal">论</div>
-        <div class="brand-text">
-          <h1>论文工坊 <span class="brand-en">PaperForge</span></h1>
-          <p>毕业设计论文写作辅助系统</p>
+  <div class="sticky-top">
+    <header class="site-header">
+      <div class="container header-inner">
+        <div class="brand">
+          <div class="brand-seal">论</div>
+          <div class="brand-text">
+            <h1>论文工坊 <span class="brand-en">PaperForge</span></h1>
+            <p>毕业设计论文写作辅助系统</p>
+          </div>
+        </div>
+        <div class="header-status">
+          <span class="status-dot"></span>
+          <span id="statusText">系统服务正常</span>
         </div>
       </div>
-      <div class="header-status">
-        <span class="status-dot"></span>
-        <span id="statusText">系统服务正常</span>
-      </div>
-    </div>
-  </header>
+    </header>
 
-  <nav class="site-nav">
-    <div class="container nav-inner">
-      <a class="active" href="#topicView">论文选题</a>
-      <a href="#fillPanel">论文生成</a>
-      <a href="#historyWrap">历史记录</a>
-      <a href="#siteFooter">关于系统</a>
-    </div>
-  </nav>
+    <nav class="site-nav">
+      <div class="container nav-inner">
+        <a class="active" href="#topicView">论文选题</a>
+        <a href="#fillPanel">论文生成</a>
+        <a href="#historyWrap">历史记录</a>
+        <a href="#siteFooter">关于系统</a>
+      </div>
+    </nav>
+  </div>
 
   <main class="container layout">
     <aside class="panel form-panel" id="fillPanel">
       <div class="section-title">论文信息填报</div>
 
       <div class="field-group">
-        <div class="field-label">一、研究方向</div>
-        <p class="field-tip">填写研究方向关键词,关键词越具体,推荐题目越贴近</p>
-        <input id="keywords" class="text-input" type="text" placeholder="如:校园二手交易、高校图书馆" />
+        <div class="field-label">一、论文题目（可选）</div>
+        <p class="field-tip">已有想法可直接填写;不确定写什么可留空,交给系统推荐</p>
+        <input id="title" class="text-input title-input" type="text" placeholder="如:基于 SpringBoot 与 Vue 的校园二手交易平台" />
+        <div class="field-label small">研究方向（用于推荐,可选）</div>
+        <input id="keywords" class="text-input" type="text" placeholder="如:校园二手交易、宠物领养、医院挂号" />
         <div class="hint-row">
           <span class="hint-label">常用方向:</span>
           <button class="hint-chip" data-kw="校园二手交易" type="button">校园二手交易</button>
           <button class="hint-chip" data-kw="高校图书馆" type="button">高校图书馆</button>
           <button class="hint-chip" data-kw="医院门诊挂号" type="button">医院门诊挂号</button>
         </div>
+        <button id="suggestBtn" class="btn btn-outline btn-block" type="button">一键推荐</button>
       </div>
 
       <div class="field-group">
@@ -79,8 +82,8 @@
             </select>
           </div>
         </div>
-        <div class="field-label small">论文题目（选定题目后自动填入,可修改）</div>
-        <input id="title" class="text-input" type="text" placeholder="生成备选题目并选择,或直接输入自定义题目" />
+        <div class="field-label small">补充需求（可选,论文将按此要求撰写）</div>
+        <textarea id="requirements" class="text-input requirements-input" placeholder="例如:重点突出系统安全性、完善数据库设计、增加测试用例与异常处理等内容;不填也可正常生成"></textarea>
         <label class="ai-check">
           <input type="checkbox" id="useAi" disabled />
           <span>启用智能写作模式（未配置写作服务时自动使用本地模板）</span>
@@ -89,7 +92,6 @@
 
       <div class="actions">
         <button id="demoBtn" class="btn btn-outline" type="button">演示模式</button>
-        <button id="suggestBtn" class="btn btn-outline" type="button">生成题目建议</button>
       </div>
       <button id="genBtn" class="btn btn-primary btn-block" type="button">开始生成论文</button>
 
@@ -103,7 +105,7 @@
       <div id="topicView" class="topic-view">
         <div class="section-title">论文选题</div>
         <div class="view-head">
-          <p id="topicHint" class="topic-hint">请填写研究方向关键词,点击「生成题目建议」,系统将推荐 4 个备选题目</p>
+          <p id="topicHint" class="topic-hint">不确定写什么?直接点击「一键推荐」,系统将推荐 4 个备选题目</p>
           <button id="refreshBtn" class="btn btn-outline hidden" type="button">重新生成</button>
         </div>
         <div id="topicGrid" class="topic-grid">
@@ -160,6 +162,6 @@
     </div>
   </footer>
 
-  <script src="/js/app.js"></script>
+  <script src="/js/app.js?v=6"></script>
 </body>
 </html>

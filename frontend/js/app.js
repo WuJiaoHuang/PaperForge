@@ -16,8 +16,19 @@ const state = {
   stageEls: [],
   renderedChapters: new Set(),
   designShown: false,
+  chartExtras: [],
+  chartImages: {},
 };
 const STAGE_NAMES = ["系统设定", "摘要", "Abstract", "绪论", "相关技术", "需求分析", "系统设计", "系统实现", "系统测试", "总结展望", "参考文献致谢"];
+const CHART_POSITIONS = ["第 3 章 需求分析", "第 4 章 系统设计", "第 5 章 系统实现", "第 6 章 系统测试", "文末"];
+let CHART_TYPES = [
+  { type: "er", label: "E-R 图", hint: "粘贴 SQL 建表语句(CREATE TABLE …),留空则使用系统设定的数据表" },
+  { type: "flow", label: "流程图", hint: "按顺序描述步骤,每行一步;留空则生成默认业务流程" },
+  { type: "architecture", label: "系统架构图", hint: "每行一层(如:用户层:浏览器);留空则按技术栈生成" },
+  { type: "module", label: "功能模块图", hint: "可留空,默认使用系统设定的功能模块" },
+  { type: "usecase", label: "系统用例图", hint: "可留空,默认使用系统设定的角色与功能" },
+  { type: "sequence", label: "时序图", hint: "每行格式:角色A -> 角色B: 消息;留空则生成默认交互时序" },
+];
 const $ = (id) => document.getElementById(id);
 
 /* ---------- 技术栈 chips ---------- */
@@ -68,8 +79,7 @@ function setSuggestBusy(busy) {
 }
 
 async function suggestTopics() {
-  const keywords = $("keywords").value.trim();
-  if (!keywords) { alert("请先填写研究方向关键词"); $("keywords").focus(); return false; }
+  const keywords = $("keywords").value.trim() || $("title").value.trim();
   const techs = selectedTechs();
   setSuggestBusy(true);
   $("topicHint").textContent = "正在生成备选题目…";
@@ -167,6 +177,7 @@ $("clearTopicBtn").onclick = clearTopic;
 
 /* ---------- 演示模式 ---------- */
 $("demoBtn").onclick = async () => {
+  $("title").value = "基于 SpringBoot 与 Vue 的校园二手交易平台";
   $("keywords").value = "校园二手交易";
   document.querySelectorAll("#techChips .chip").forEach((c) => {
     c.classList.toggle("on", ["SpringBoot", "Vue", "MySQL", "Redis"].includes(c.dataset.tech));
@@ -216,6 +227,14 @@ function mdToHtml(md) {
 
   for (const raw of lines) {
     const line = raw.trimEnd();
+    const imgMatch = line.match(/^!\[(.*?)\]\((data:image\/png;base64,[^)]+)\)$/);
+    if (imgMatch) {
+      closeList();
+      flushTable();
+      html += '<figure class="paper-figure"><img src="' + imgMatch[2] + '" alt="' + escapeHtml(imgMatch[1]) +
+        '"/><figcaption>' + escapeHtml(imgMatch[1]) + "</figcaption></figure>";
+      continue;
+    }
     if (line.startsWith("```")) {
       if (!inCode) { closeList(); flushTable(); inCode = true; codeBuf = []; }
       else {
@@ -263,9 +282,12 @@ async function generate() {
     word_level: $("wordLevel").value,
     style: $("style").value,
     use_ai: $("useAi").checked,
+    requirements: $("requirements").value.trim(),
   };
   setBusy(true);
   showProgress();
+  state.chartExtras = [];
+  state.chartImages = {};
   $("progressText").textContent = "正在生成论文内容,已完成章节将实时显示…";
   $("progressFill").style.width = "2%";
   initStages();
@@ -396,6 +418,16 @@ function renderResult(payload) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function updateWordCount() {
+  if (!state.payload) return;
+  const full = state.payload.chapters.map((x) => x.content_md || "").join("");
+  const words = full.replace(/\n/g, "").replace(/ /g, "").length;
+  state.payload.stats = state.payload.stats || {};
+  state.payload.stats.word_count = words;
+  const meta = $("paperMeta");
+  if (meta) meta.textContent = meta.textContent.replace(/约 \d+ 字/, "约 " + words + " 字");
+}
+
 function renderDesign(design) {
   const wrap = $("designPanel");
   wrap.innerHTML = "<h3>系统设定(全篇一致的模块 / 角色 / 数据表)</h3>";
@@ -425,12 +457,140 @@ function makeChapterCard(c) {
   const card = document.createElement("article");
   card.className = "chapter";
   card.id = id;
-  card.innerHTML = '<div class="chapter-card"><h2>' + c.title + "</h2>" + mdToHtml(c.content_md) + "</div>";
+  const editable = !!state.payload;
+  card.innerHTML =
+    '<div class="chapter-card">' +
+      '<div class="chapter-head"><h2>' + c.title + "</h2>" +
+        '<div class="chapter-actions">' +
+          '<button class="btn-mini btn-edit" type="button"' + (editable ? "" : " disabled") + ">编辑</button>" +
+          '<button class="btn-mini btn-regen" type="button"' + (editable ? "" : " disabled") + ">重新生成</button>" +
+        "</div></div>" +
+      '<div class="chapter-body">' + mdToHtml(c.content_md) + "</div>" +
+    "</div>";
   const link = document.createElement("a");
   link.href = "#" + id;
   link.textContent = c.title;
   link.onclick = (e) => { e.preventDefault(); card.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  if (editable) {
+    card.querySelector(".btn-edit").onclick = () => enterEditMode(card, c);
+    card.querySelector(".btn-regen").onclick = () => enterRegenMode(card, c);
+  }
   return { card, link };
+}
+
+function renderChapterBody(card, md) {
+  const body = card.querySelector(".chapter-body");
+  body.innerHTML = mdToHtml(md);
+}
+
+function enterEditMode(card, c) {
+  const body = card.querySelector(".chapter-body");
+  const editBtn = card.querySelector(".btn-edit");
+  const regenBtn = card.querySelector(".btn-regen");
+  const ta = document.createElement("textarea");
+  ta.className = "chapter-editor";
+  ta.value = c.content_md;
+  body.innerHTML = "";
+  body.appendChild(ta);
+  editBtn.textContent = "保存";
+  regenBtn.textContent = "取消";
+  editBtn.onclick = () => saveChapter(card, c, ta);
+  regenBtn.onclick = () => exitEditMode(card, c);
+  ta.focus();
+}
+
+function exitEditMode(card, c) {
+  const editBtn = card.querySelector(".btn-edit");
+  const regenBtn = card.querySelector(".btn-regen");
+  renderChapterBody(card, c.content_md);
+  editBtn.textContent = "编辑";
+  regenBtn.textContent = "重新生成";
+  editBtn.onclick = () => enterEditMode(card, c);
+  regenBtn.onclick = () => enterRegenMode(card, c);
+}
+
+function saveChapter(card, c, ta) {
+  if (!state.payload) return;
+  const idx = state.payload.chapters.findIndex((x) => x.seq === c.seq);
+  if (idx === -1) return;
+  state.payload.chapters[idx].content_md = ta.value;
+  c.content_md = ta.value;
+  updateWordCount();
+  saveHistory(state.payload);
+  exitEditMode(card, c);
+}
+
+function enterRegenMode(card, c) {
+  if (!state.payload) return;
+  const body = card.querySelector(".chapter-body");
+  const editBtn = card.querySelector(".btn-edit");
+  const regenBtn = card.querySelector(".btn-regen");
+  const box = document.createElement("div");
+  box.className = "regen-box";
+  const ta = document.createElement("textarea");
+  ta.className = "regen-input";
+  ta.placeholder = "输入修改意见(可选),例如:精简篇幅、补充数据库设计细节、语气更正式;留空则直接重新生成";
+  box.appendChild(ta);
+  body.before(box);
+  editBtn.textContent = "确认生成";
+  regenBtn.textContent = "取消";
+  editBtn.onclick = () => doRegenerate(card, c, ta, box, editBtn, regenBtn);
+  regenBtn.onclick = () => exitRegenMode(card, c, box);
+  ta.focus();
+}
+
+function exitRegenMode(card, c, box) {
+  if (box) box.remove();
+  const editBtn = card.querySelector(".btn-edit");
+  const regenBtn = card.querySelector(".btn-regen");
+  editBtn.textContent = "编辑";
+  regenBtn.textContent = "重新生成";
+  editBtn.onclick = () => enterEditMode(card, c);
+  regenBtn.onclick = () => enterRegenMode(card, c);
+}
+
+async function doRegenerate(card, c, ta, box, editBtn, regenBtn) {
+  if (!state.payload) return;
+  const instructions = ta.value.trim();
+  editBtn.disabled = true;
+  regenBtn.disabled = true;
+  editBtn.textContent = "生成中…";
+  try {
+    const res = await fetch("/api/generate/chapter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: state.payload.title,
+        techs: state.payload.techs || [],
+        word_level: state.payload.level || "medium",
+        style: state.payload.style || "严谨学术",
+        use_ai: $("useAi").checked,
+        chapter_key: c.key,
+        chapter_title: c.title,
+        hint: c.hint || "",
+        instructions,
+        requirements: state.payload.requirements || "",
+        system_design: state.payload.system_design || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "重新生成失败");
+    const idx = state.payload.chapters.findIndex((x) => x.seq === c.seq);
+    if (idx !== -1) {
+      state.payload.chapters[idx].content_md = data.content_md;
+      c.content_md = data.content_md;
+      renderChapterBody(card, data.content_md);
+      updateWordCount();
+      saveHistory(state.payload);
+    }
+    if (data.note) alert(data.note);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    exitRegenMode(card, c, box);
+    editBtn.disabled = false;
+    regenBtn.disabled = false;
+  }
 }
 
 function appendChapters(chapters) {
@@ -445,16 +605,198 @@ function appendChapters(chapters) {
 
 function renderCharts(suggestions) {
   const wrap = $("chartPanel");
-  if (!suggestions.length) { wrap.classList.add("hidden"); return; }
+  const all = (suggestions || []).concat(state.chartExtras || []);
+  if (!all.length) { wrap.classList.add("hidden"); return; }
   wrap.classList.remove("hidden");
   wrap.innerHTML =
-    "<h3>图表建议清单(系统不画图,你上传素材后系统绘制)</h3>" +
-    "<table><thead><tr><th>图号</th><th>图题</th><th>建议位置</th><th>所需素材</th></tr></thead><tbody>" +
-    suggestions.map((s) =>
-      "<tr><td>" + s.fig + "</td><td>" + s.title + "</td><td>" + s.position +
-      '</td><td class="material">' + s.material + "</td></tr>"
-    ).join("") +
-    "</tbody></table>";
+    '<div class="chart-panel-head"><h3>生图清单(填写素材后点击「生成图表」)</h3>' +
+    '<div class="chart-add"><select id="chartTypeSelect">' +
+    CHART_TYPES.map((t) => '<option value="' + t.type + '">' + escapeHtml(t.label) + "</option>").join("") +
+    '</select><select id="chartPosSelect">' +
+    CHART_POSITIONS.map((p) => "<option>" + p + "</option>").join("") +
+    '</select><button id="addChartBtn" class="btn-mini" type="button">添加图表</button></div></div>';
+  all.forEach((s) => {
+    const item = document.createElement("div");
+    item.className = "chart-item";
+    const hint = chartHint(inferChartType(s)) || s.material || "";
+    const canDelete = state.chartExtras.includes(s);
+    item.innerHTML =
+      '<div class="chart-item-head"><span class="chart-fig">' + escapeHtml(s.fig || "新增") + "</span>" +
+      "<b>" + escapeHtml(s.title || "") + '</b><span class="chart-pos">' + escapeHtml(s.position || "自定义图表") + "</span></div>" +
+      '<textarea class="chart-material" rows="2" placeholder="' + escapeHtml(hint) + '"></textarea>' +
+      '<div class="chart-item-actions">' +
+      '<button class="btn-mini btn-gen-chart" type="button">生成图表</button>' +
+      (canDelete ? '<button class="btn-mini btn-del-chart" type="button">删除</button>' : "") +
+      "</div>" +
+      '<div class="chart-result"></div>';
+    item.querySelector(".chart-material").value = defaultChartPrompt(s);
+    item.querySelector(".btn-gen-chart").onclick = () =>
+      generateChart(item.querySelector(".chart-material"), item.querySelector(".chart-result"), s);
+    if (canDelete) {
+      item.querySelector(".btn-del-chart").onclick = () => {
+        state.chartExtras = state.chartExtras.filter((x) => x !== s);
+        renderCharts(state.payload ? state.payload.chart_suggestions : []);
+      };
+    }
+    wrap.appendChild(item);
+  });
+  $("addChartBtn").onclick = addChartItem;
+}
+
+function inferChartType(s) {
+  if (s && s.type) return s.type;
+  const t = ((s && s.title) || "") + ((s && s.material) || "");
+  if (t.includes("架构")) return "architecture";
+  if (t.includes("用例")) return "usecase";
+  if (t.includes("E-R") || t.includes("ER") || t.includes("实体")) return "er";
+  if (t.includes("流程")) return "flow";
+  if (t.includes("时序")) return "sequence";
+  if (t.includes("模块")) return "module";
+  return "module";
+}
+
+function chartHint(type) {
+  const t = CHART_TYPES.find((x) => x.type === type);
+  return t ? t.hint : "";
+}
+
+function addChartItem() {
+  const t = CHART_TYPES.find((x) => x.type === $("chartTypeSelect").value) || CHART_TYPES[0];
+  const pos = $("chartPosSelect") ? $("chartPosSelect").value : "第 4 章 系统设计";
+  state.chartExtras = state.chartExtras || [];
+  state.chartExtras.push({ fig: "新增", title: t.label, type: t.type, position: pos, material: t.hint });
+  renderCharts(state.payload ? state.payload.chart_suggestions : []);
+}
+
+function defaultChartPrompt(s) {
+  if (s && s.prompt) return s.prompt;
+  const p = state.payload;
+  const title = p ? p.title : "";
+  const techs = p && p.techs && p.techs.length ? p.techs.join("、") : "";
+  const design = p ? p.system_design : null;
+  const tables = design && design.tables ? design.tables.map((t) => (t.name || "") + "(" + (t.title || "") + ")").join("、") : "";
+  const modules = design && design.modules ? design.modules.map((m) => m.name).join("、") : "";
+  const roles = design && design.roles ? design.roles.join("、") : "";
+  const features = design && design.features
+    ? design.features.map((f) => (typeof f === "string" ? f : f.desc)).join("、")
+    : "";
+  const flowSteps = design && design.features && design.features.length
+    ? design.features.slice(0, 3)
+      .map((f) => (typeof f === "string" ? f : (f.desc || f.module || "")).slice(0, 14))
+      .join("\n")
+    : "用户发起请求\n系统校验与业务处理\n读写数据库";
+  const type = inferChartType(s);
+  switch (type) {
+    case "er":
+      return "请根据以下系统数据表绘制 E-R 图。\n论文题目:" + title + "\n数据表:" + (tables || "系统数据表") +
+        "\n(可粘贴 SQL 建表语句替换,系统将解析生成实体与关系)";
+    case "flow":
+      return "请根据以下业务流程绘制流程图。\n论文题目:" + title + "\n用户登录系统\n" + flowSteps + "\n数据保存与结果返回";
+    case "architecture":
+      return "请根据以下技术栈绘制系统架构图。\n技术栈:" + (techs || "系统技术栈") +
+        "\n层次:用户层 → 前端展示层 → 业务逻辑层 → 数据存储层";
+    case "module":
+      return "请根据系统功能模块绘制功能模块图。\n论文题目:" + title + "\n模块清单:" + (modules || "用户管理、业务管理、系统管理");
+    case "usecase":
+      return "请根据系统角色与功能绘制用例图。\n论文题目:" + title + "\n角色:" + (roles || "管理员、普通用户") +
+        "\n功能:" + (features || "登录、业务管理、数据查询");
+    case "sequence":
+      return "请根据系统交互流程绘制时序图。\n论文题目:" + title +
+        "\n用户 -> 系统: 提交请求\n系统 -> 数据库: 读写数据\n系统 -> 用户: 返回结果";
+    default:
+      return "请根据论文《" + title + "》绘制所需图表,可按需要修改下方指令。";
+  }
+}
+
+async function generateChart(textarea, resultEl, s) {
+  const material = textarea.value.trim();
+  resultEl.innerHTML = '<span class="chart-loading">正在绘制…</span>';
+  try {
+    const res = await fetch("/api/charts/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chart_type: inferChartType(s),
+        title: s.title,
+        material,
+        techs: state.payload ? state.payload.techs || [] : [],
+        use_ai: $("useAi").checked,
+        system_design: state.payload ? state.payload.system_design : null,
+      }),
+    });
+    if (!res.ok) {
+      let msg = "生成失败";
+      try { const d = await res.json(); msg = d.error || msg; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const b64 = await blobToBase64(blob);
+    const key = (s.fig || "chart") + "|" + (s.title || "");
+    state.chartImages = state.chartImages || {};
+    state.chartImages[key] = b64;
+    resultEl.innerHTML =
+      '<img class="chart-img" src="data:image/png;base64,' + b64 + '" alt="' + escapeHtml(s.title || "") + '" />' +
+      '<div class="chart-download">' +
+      '<a class="btn-mini" href="data:image/png;base64,' + b64 + '" download="' +
+      escapeHtml((s.fig || "chart") + "_" + (s.title || "")) + '.png">下载图片</a>' +
+      '<button class="btn-mini btn-place-chart" type="button">放入论文指定位置</button>' +
+      "</div>";
+    resultEl.querySelector(".btn-place-chart").onclick = () => placeChartInPaper(s, b64);
+  } catch (err) {
+    resultEl.innerHTML = '<span class="chart-error">' + escapeHtml(err.message) + "</span>";
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function placeChartInPaper(s, b64) {
+  if (!state.payload) return;
+  const imgLine = "![" + (s.fig || "图") + " " + (s.title || "") + "](data:image/png;base64," + b64 + ")";
+  const figMatch = (s.fig || "").match(/图\s*\d+\s*[-－]\s*\d+/);
+  const figNum = figMatch ? figMatch[0].replace(/\s+/g, " ").replace("－", "-") : "";
+  let placed = false;
+  state.payload.chapters.forEach((ch) => {
+    if (placed) return;
+    const lines = ch.content_md.split("\n");
+    const out = [];
+    for (const line of lines) {
+      if (!placed && figNum && line.includes(figNum) && line.includes("此处建议插入")) {
+        out.push(imgLine);
+        placed = true;
+      } else {
+        out.push(line);
+      }
+    }
+    ch.content_md = out.join("\n");
+  });
+  if (!placed) {
+    const pos = s.position || "";
+    const m = pos.match(/第\s*(\d)\s*章/);
+    let target = null;
+    if (m) target = state.payload.chapters.find((x) => x.key === "ch" + m[1]);
+    if (!target && pos.includes("文末")) target = state.payload.chapters[state.payload.chapters.length - 1];
+    if (!target) target = state.payload.chapters[state.payload.chapters.length - 1];
+    target.content_md = (target.content_md.trimEnd() + "\n\n" + imgLine).trim();
+  }
+  renderChapters(state.payload.chapters);
+  saveHistory(state.payload);
+  updateWordCount();
+  alert("图片已放入论文" + (figNum ? "对应占位处" : "指定章节"));
+}
+
+async function loadChartTypes() {
+  try {
+    const res = await fetch("/api/charts/types");
+    const data = await res.json();
+    if (data.types && data.types.length) CHART_TYPES = data.types;
+  } catch { /* 使用内置默认 */ }
 }
 
 /* ---------- 导出 ---------- */
@@ -485,7 +827,10 @@ $("exportMd").onclick = () => exportFile("/api/export/md");
 
 $("copyBtn").onclick = async () => {
   if (!state.payload) return;
-  const md = state.payload.chapters.map((c) => c.seq > 1 ? "# " + c.title + "\n\n" + c.content_md : c.content_md).join("\n\n");
+  const md = state.payload.chapters
+    .map((c) => c.seq > 1 ? "# " + c.title + "\n\n" + c.content_md : c.content_md)
+    .join("\n\n")
+    .replace(/!\[([^\]]*)\]\(data:image\/png;base64,[^)]+\)/g, "【已插入图表:$1】");
   try { await navigator.clipboard.writeText(md); alert("全文已复制"); }
   catch { alert("复制失败,请手动复制"); }
 };
@@ -534,6 +879,19 @@ async function checkAi() {
   } catch { /* 保持默认 */ }
 }
 
+/* 顶栏固定:自动量取高度,给页面留白并同步锚点偏移 */
+function syncTopbar() {
+  const top = document.querySelector(".sticky-top");
+  if (!top) return;
+  const h = top.offsetHeight + "px";
+  document.documentElement.style.setProperty("--topbar-h", h);
+  document.body.style.paddingTop = h;
+}
+window.addEventListener("load", syncTopbar);
+window.addEventListener("resize", syncTopbar);
+
 initChips();
 renderHistory();
 checkAi();
+syncTopbar();
+loadChartTypes();

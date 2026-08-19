@@ -369,7 +369,7 @@ def build_ch3(title, design, level):
         "操作可行性:系统界面简洁、操作流程清晰,用户经过简单培训即可上手使用,具备良好的操作可行性。\n\n"
         "## 3.2 功能需求分析\n\n"
         "通过对业务场景的分析,系统主要包含以下功能模块:\n\n%s\n\n"
-        "【此处建议插入:图 3-1 系统用例图】(素材:角色与功能描述文字)\n\n"
+        "【此处建议插入:图 3-1 系统用例图(需标注系统角色)】(素材:角色与功能描述文字)\n\n"
         "## 3.3 非功能需求\n\n"
         "- 性能需求:系统应能支持一定规模的并发访问,主要操作响应时间在可接受范围内;\n"
         "- 安全需求:用户密码需加密存储,接口需进行权限校验,防止未授权访问;\n"
@@ -386,7 +386,7 @@ def build_ch4(title, design, level):
         "## 4.1 总体架构设计\n\n"
         "系统采用前后端分离的分层架构:前端负责页面展示与用户交互,后端按照表现层、业务层与数据访问层进行划分,"
         "通过 RESTful 接口进行通信,数据库负责数据的持久化存储。整体架构层次清晰、职责明确,便于团队并行开发与后续维护。\n\n"
-        "【此处建议插入:图 4-1 系统架构图】(素材:技术栈与部署说明文字)\n\n"
+        "【此处建议插入:图 4-1 系统架构图(需标注所用技术栈)】(素材:技术栈与部署说明文字)\n\n"
         "## 4.2 功能模块设计\n\n"
         "根据需求分析结果,系统划分为以下功能模块:\n\n%s\n\n"
         "【此处建议插入:图 4-2 功能模块图】(素材:模块说明文字,可自动预填)\n\n"
@@ -491,27 +491,70 @@ def build_refs(techs):
 
 def chart_suggestions():
     return [
-        {"fig": "图 3-1", "title": "系统用例图", "position": "第 3 章 需求分析", "material": "角色与功能描述文字"},
-        {"fig": "图 4-1", "title": "系统架构图", "position": "第 4 章 系统设计", "material": "技术栈 / 部署说明文字"},
-        {"fig": "图 4-2", "title": "功能模块图", "position": "第 4 章 模块设计", "material": "模块说明(可自动预填)"},
-        {"fig": "图 4-3", "title": "E-R 图", "position": "第 4 章 数据库设计", "material": "SQL 建表语句"},
-        {"fig": "图 5-1", "title": "核心业务流程图", "position": "第 5 章 系统实现", "material": "业务流程文字"},
+        {"fig": "图 3-1", "title": "系统用例图", "type": "usecase", "position": "第 3 章 需求分析", "material": "角色与功能描述文字"},
+        {"fig": "图 4-1", "title": "系统架构图", "type": "architecture", "position": "第 4 章 系统设计", "material": "技术栈 / 部署说明文字"},
+        {"fig": "图 4-2", "title": "功能模块图", "type": "module", "position": "第 4 章 模块设计", "material": "模块说明(可自动预填)"},
+        {"fig": "图 4-3", "title": "E-R 图", "type": "er", "position": "第 4 章 数据库设计", "material": "SQL 建表语句"},
+        {"fig": "图 5-1", "title": "核心业务流程图", "type": "flow", "position": "第 5 章 系统实现", "material": "业务流程文字"},
     ]
+
+
+CHAPTER_HINTS = {
+    "summary": "中文摘要(约300字)与关键词",
+    "abstract": "英文摘要与Keywords",
+    "ch1": "研究背景与意义、国内外研究现状、主要研究内容、论文组织结构",
+    "ch2": "逐项介绍所选技术栈,每项一小节",
+    "ch3": "可行性分析、功能需求(列出全部模块)、非功能需求;在功能需求末尾插入:【此处建议插入:图 3-1 系统用例图(需标注系统角色)】",
+    "ch4": "总体架构、功能模块、数据库设计(列出全部数据表)、接口设计;分别插入【此处建议插入:图 4-1 系统架构图(需标注所用技术栈)】、【此处建议插入:图 4-2 功能模块图】、【此处建议插入:图 4-3 E-R 图】",
+    "ch5": "开发环境表格、关键模块实现、核心代码逻辑;末尾插入【此处建议插入:图 5-1 核心业务流程图】",
+    "ch6": "测试环境、功能测试用例表格、测试结论",
+    "ch7": "工作总结、不足与展望",
+    "refs": "参考文献5条以上(GB/T 7714格式)与致谢",
+}
+
+
+def regenerate_chapter_template(key, title, techs, design, level, style):
+    """用本地模板单独生成某一章内容。"""
+    if key == "summary":
+        return build_summary(title, techs, design, level)
+    if key == "abstract":
+        return build_abstract(title, design)
+    if key == "ch1":
+        return build_ch1(title, techs, design, level)
+    if key == "ch2":
+        return build_ch2(techs)
+    if key == "ch3":
+        return build_ch3(title, design, level)
+    if key == "ch4":
+        return build_ch4(title, design, level)
+    if key == "ch5":
+        return build_ch5(title, design, level)
+    if key == "ch6":
+        return build_ch6(design, level)
+    if key == "ch7":
+        return build_ch7(title, level)
+    if key == "refs":
+        return build_refs(techs)
+    return None
 
 
 def generate_paper(title, techs, level="medium", style="严谨学术"):
     design = build_system_design(title, techs, level)
+    raw = [
+        ("summary", "摘要与关键词", build_summary(title, techs, design, level)),
+        ("abstract", "Abstract", build_abstract(title, design)),
+        ("ch1", "第 1 章 绪论", build_ch1(title, techs, design, level)),
+        ("ch2", "第 2 章 相关技术介绍", build_ch2(techs)),
+        ("ch3", "第 3 章 系统需求分析", build_ch3(title, design, level)),
+        ("ch4", "第 4 章 系统设计", build_ch4(title, design, level)),
+        ("ch5", "第 5 章 系统实现", build_ch5(title, design, level)),
+        ("ch6", "第 6 章 系统测试", build_ch6(design, level)),
+        ("ch7", "第 7 章 总结与展望", build_ch7(title, level)),
+        ("refs", "参考文献与致谢", build_refs(techs)),
+    ]
     chapters = [
-        {"seq": 0, "key": "summary", "title": "摘要与关键词", "content_md": build_summary(title, techs, design, level)},
-        {"seq": 1, "key": "abstract", "title": "Abstract", "content_md": build_abstract(title, design)},
-        {"seq": 2, "key": "ch1", "title": "第 1 章 绪论", "content_md": build_ch1(title, techs, design, level)},
-        {"seq": 3, "key": "ch2", "title": "第 2 章 相关技术介绍", "content_md": build_ch2(techs)},
-        {"seq": 4, "key": "ch3", "title": "第 3 章 系统需求分析", "content_md": build_ch3(title, design, level)},
-        {"seq": 5, "key": "ch4", "title": "第 4 章 系统设计", "content_md": build_ch4(title, design, level)},
-        {"seq": 6, "key": "ch5", "title": "第 5 章 系统实现", "content_md": build_ch5(title, design, level)},
-        {"seq": 7, "key": "ch6", "title": "第 6 章 系统测试", "content_md": build_ch6(design, level)},
-        {"seq": 8, "key": "ch7", "title": "第 7 章 总结与展望", "content_md": build_ch7(title, level)},
-        {"seq": 9, "key": "refs", "title": "参考文献与致谢", "content_md": build_refs(techs)},
+        {"seq": i, "key": k, "title": t, "content_md": c, "hint": CHAPTER_HINTS.get(k, "")}
+        for i, (k, t, c) in enumerate(raw)
     ]
     full_md = "\n\n".join("# %s\n\n%s" % (c["title"], c["content_md"]) if c["seq"] > 1 else c["content_md"] for c in chapters)
     words = len(full_md.replace("\n", "").replace(" ", ""))

@@ -4,7 +4,9 @@
 import threading
 import time
 import uuid
+import io
 from pathlib import Path
+from typing import Optional
 from urllib.parse import quote
 
 from fastapi import FastAPI
@@ -12,9 +14,17 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .ai_client import ai_available, generate_paper_ai, suggest_topics_ai
+from .ai_client import (
+    ai_available,
+    generate_paper_ai,
+    parse_chart_spec_ai,
+    plantuml_chart_ai,
+    regenerate_chapter_ai,
+    suggest_topics_ai,
+)
+from .chart_engine import CHART_TYPES, build_chart_prompt, generate_chart_bytes, render_plantuml
 from .exporter import build_docx_bytes, to_markdown
-from .template_engine import generate_paper, suggest_topics
+from .template_engine import build_system_design, generate_paper, regenerate_chapter_template, suggest_topics
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
@@ -32,6 +42,7 @@ class GenerateRequest(BaseModel):
     word_level: str = "medium"
     style: str = "严谨学术"
     use_ai: bool = False
+    requirements: str = ""
 
 
 class SuggestRequest(BaseModel):
@@ -42,8 +53,31 @@ class SuggestRequest(BaseModel):
     use_ai: bool = False
 
 
+class ChapterRequest(BaseModel):
+    title: str = ""
+    techs: list = []
+    word_level: str = "medium"
+    style: str = "严谨学术"
+    use_ai: bool = False
+    chapter_key: str = ""
+    chapter_title: str = ""
+    hint: str = ""
+    instructions: str = ""
+    requirements: str = ""
+    system_design: Optional[dict] = None
+
+
 class ExportRequest(BaseModel):
     payload: dict
+
+
+class ChartRequest(BaseModel):
+    chart_type: str = ""
+    title: str = ""
+    material: str = ""
+    techs: list = []
+    use_ai: bool = False
+    system_design: Optional[dict] = None
 
 
 @app.get("/api/health")
@@ -56,24 +90,32 @@ def run_generation(req: GenerateRequest, on_stage=None, on_design=None, on_chapt
     if not title:
         raise ValueError("请填写论文题目")
     techs = [t for t in (req.techs or []) if str(t).strip()] or ["SpringBoot", "Vue", "MySQL"]
+    requirements = (req.requirements or "").strip()
     payload = None
     note = None
     if req.use_ai and not ai_available():
-        note = "未配置智能写作服务,已使用本地模板模式"
+        note = "未配置智能写作服务,已使用本地模板模式" + ("，补充需求未应用" if requirements else "")
     elif req.use_ai:
         payload = generate_paper_ai(
             title,
             techs,
             req.word_level,
             req.style,
+            requirements=requirements,
             on_stage=on_stage,
             on_chapter=on_chapter,
             on_design=on_design,
         )
         if payload is None:
-            note = "智能写作服务调用失败,已自动切换为本地模板模式"
+            note = "智能写作服务调用失败,已自动切换为本地模板模式" + ("，补充需求未应用" if requirements else "")
     if payload is None:
         payload = generate_paper(title, techs, req.word_level, req.style)
+        if requirements and not req.use_ai:
+            note = "本地模板模式无法应用补充需求,配置智能写作后生效"
+    payload["requirements"] = requirements
+    for s in payload.get("chart_suggestions") or []:
+        if isinstance(s, dict):
+            s["prompt"] = build_chart_prompt(s.get("type"), payload.get("system_design"), techs, title)
     payload["id"] = uuid.uuid4().hex[:10]
     payload["generated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     if note:
@@ -123,12 +165,13 @@ def generate_start(req: GenerateRequest):
                 with JOBS_LOCK:
                     state["design"] = design
 
-            def on_chapter(seq, key, title, content_md):
+            def on_chapter(seq, key, title, hint, content_md):
                 with JOBS_LOCK:
                     state["chapters"][seq] = {
                         "seq": seq,
                         "key": key,
                         "title": title,
+                        "hint": hint,
                         "content_md": content_md,
                     }
 
@@ -207,6 +250,87 @@ def suggest_topics_api(req: SuggestRequest):
     if note:
         resp["note"] = note
     return resp
+
+
+@app.post("/api/generate/chapter")
+def generate_chapter_api(req: ChapterRequest):
+    title = (req.title or "").strip()
+    if not title:
+        return JSONResponse({"error": "请填写论文题目"}, status_code=400)
+    if not req.chapter_key:
+        return JSONResponse({"error": "缺少章节标识"}, status_code=400)
+    techs = [t for t in (req.techs or []) if str(t).strip()] or ["SpringBoot", "Vue", "MySQL"]
+    design = req.system_design
+    if not isinstance(design, dict):
+        design = build_system_design(title, techs, req.word_level)
+    note = None
+    if req.use_ai and ai_available():
+        content = regenerate_chapter_ai(
+            title,
+            techs,
+            req.word_level,
+            req.style,
+            design,
+            req.chapter_key,
+            req.chapter_title or req.chapter_key,
+            req.hint or "",
+            req.instructions or "",
+            req.requirements or "",
+        )
+        if content:
+            return {"content_md": content, "mode": "ai"}
+        has_extra = bool((req.instructions or "").strip() or (req.requirements or "").strip())
+        note = (
+            "智能写作服务调用失败,已使用本地模板生成,修改意见与补充需求未能应用"
+            if has_extra
+            else "智能写作服务调用失败,已使用本地模板生成"
+        )
+    content = regenerate_chapter_template(req.chapter_key, title, techs, design, req.word_level, req.style)
+    if content is None:
+        return JSONResponse({"error": "不支持的章节: %s" % req.chapter_key}, status_code=400)
+    resp = {"content_md": content, "mode": "template"}
+    if note:
+        resp["note"] = note
+    elif (req.requirements or "").strip() and not req.use_ai:
+        resp["note"] = "本地模板模式无法应用补充需求,配置智能写作后生效"
+    return resp
+
+
+@app.get("/api/charts/types")
+def chart_types():
+    return {
+        "types": [
+            {"type": k, "label": v["label"], "hint": v["hint"]}
+            for k, v in CHART_TYPES.items()
+        ]
+    }
+
+
+@app.post("/api/charts/generate")
+def generate_chart(req: ChartRequest):
+    techs = [t for t in (req.techs or []) if str(t).strip()]
+    buf = None
+    if req.use_ai and ai_available():
+        src = plantuml_chart_ai(req.chart_type, req.material, req.system_design, req.title, techs)
+        if src:
+            png = render_plantuml(src)
+            if png:
+                buf = io.BytesIO(png)
+    if buf is None:
+        spec = None
+        if req.use_ai and ai_available():
+            spec = parse_chart_spec_ai(req.chart_type, req.material, req.system_design, req.title, techs)
+        buf = generate_chart_bytes(
+            req.chart_type,
+            req.title,
+            req.material,
+            req.system_design,
+            techs,
+            spec,
+        )
+    if buf is None:
+        return JSONResponse({"error": "不支持的图表类型: %s" % req.chart_type}, status_code=400)
+    return Response(buf.getvalue(), media_type="image/png")
 
 
 @app.post("/api/export/docx")
