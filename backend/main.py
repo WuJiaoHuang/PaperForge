@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
-"""PaperForge V0 明日展示 Demo —— FastAPI 主入口。"""
+"""PaperForge 集成版主入口:master 全部功能接口 + 组员 writing 模块(可选加载)。"""
 
+import io
 import threading
 import time
 import uuid
-import io
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .ai_client import (
+from .core.ai_client import (
     ai_available,
     generate_paper_ai,
     parse_chart_spec_ai,
@@ -22,16 +23,51 @@ from .ai_client import (
     regenerate_chapter_ai,
     suggest_topics_ai,
 )
-from .chart_engine import CHART_TYPES, build_chart_prompt, generate_chart_bytes, render_plantuml
-from .exporter import build_docx_bytes, to_markdown
-from .template_engine import build_system_design, generate_paper, regenerate_chapter_template, suggest_topics
+from .core.chart_engine import CHART_TYPES, build_chart_prompt, generate_chart_bytes, render_plantuml
+from .core.exporter import build_docx_bytes, to_markdown
+from .core.template_engine import (
+    build_system_design,
+    generate_paper,
+    regenerate_chapter_template,
+    suggest_topics,
+)
+
+# ---------- V2 配置(可选加载,失败不影响主功能) ----------
+try:
+    from .config import settings as _settings
+
+    APP_NAME = _settings.APP_NAME
+    APP_VERSION = _settings.APP_VERSION
+    CORS_ORIGINS = _settings.CORS_ORIGINS
+except Exception:
+    APP_NAME = "PaperForge"
+    APP_VERSION = "1.0.0"
+    CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 FRONTEND_DIST = FRONTEND / "dist"
 STATIC_DIR = FRONTEND_DIST if FRONTEND_DIST.exists() else FRONTEND
 
-app = FastAPI(title="PaperForge Demo", description="论文工坊 · 明日展示 Demo")
+app = FastAPI(title=APP_NAME, description="论文工坊 · 毕业设计论文写作辅助系统", version=APP_VERSION)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------- 组员 writing 模块(依赖 SQLAlchemy/Celery 等,缺依赖时自动降级) ----------
+writing_enabled = False
+try:
+    from .writing.api import router as writing_router
+
+    app.include_router(writing_router, prefix="/api", tags=["写作模块"])
+    writing_enabled = True
+except Exception:
+    writing_enabled = False
 
 # 内存中的生成任务(本地演示用,不持久化)
 JOBS = {}
@@ -82,11 +118,6 @@ class ChartRequest(BaseModel):
     system_design: Optional[dict] = None
 
 
-@app.get("/api/health")
-def health():
-    return {"status": "ok", "ai_available": ai_available()}
-
-
 def run_generation(req: GenerateRequest, on_stage=None, on_design=None, on_chapter=None):
     title = (req.title or "").strip()
     if not title:
@@ -123,6 +154,22 @@ def run_generation(req: GenerateRequest, on_stage=None, on_design=None, on_chapt
     if note:
         payload["note"] = note
     return payload
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "ai_available": ai_available(), "writing_module": writing_enabled}
+
+
+@app.get("/health")
+def health_v2():
+    return {
+        "status": "ok",
+        "service": APP_NAME,
+        "version": APP_VERSION,
+        "ai_available": ai_available(),
+        "writing_module": writing_enabled,
+    }
 
 
 @app.post("/api/generate")
@@ -300,12 +347,7 @@ def generate_chapter_api(req: ChapterRequest):
 
 @app.get("/api/charts/types")
 def chart_types():
-    return {
-        "types": [
-            {"type": k, "label": v["label"], "hint": v["hint"]}
-            for k, v in CHART_TYPES.items()
-        ]
-    }
+    return {"types": [{"type": k, "label": v["label"], "hint": v["hint"]} for k, v in CHART_TYPES.items()]}
 
 
 @app.post("/api/charts/generate")
@@ -322,14 +364,7 @@ def generate_chart(req: ChartRequest):
         spec = None
         if req.use_ai and ai_available():
             spec = parse_chart_spec_ai(req.chart_type, req.material, req.system_design, req.title, techs)
-        buf = generate_chart_bytes(
-            req.chart_type,
-            req.title,
-            req.material,
-            req.system_design,
-            techs,
-            spec,
-        )
+        buf = generate_chart_bytes(req.chart_type, req.title, req.material, req.system_design, techs, spec)
     if buf is None:
         return JSONResponse({"error": "不支持的图表类型: %s" % req.chart_type}, status_code=400)
     return Response(buf.getvalue(), media_type="image/png")

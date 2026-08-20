@@ -3,3 +3,8 @@ uvicorn
 python-docx
 openai>=1.40,<2
 python-dotenv
+pydantic-settings
+sqlalchemy>=2.0
+aiomysql
+celery
+redis
