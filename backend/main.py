@@ -28,6 +28,8 @@ from .template_engine import build_system_design, generate_paper, regenerate_cha
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
+FRONTEND_DIST = FRONTEND / "dist"
+STATIC_DIR = FRONTEND_DIST if FRONTEND_DIST.exists() else FRONTEND
 
 app = FastAPI(title="PaperForge Demo", description="论文工坊 · 明日展示 Demo")
 
@@ -355,4 +357,4 @@ def export_md(req: ExportRequest):
     )
 
 
-app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="frontend")
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")

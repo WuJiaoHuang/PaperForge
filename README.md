@@ -39,12 +39,21 @@
 - Python 3.10 及以上
 - Java 17 及以上（用于 PlantUML 渲染）
 - Graphviz（PlantUML 依赖，用于部分图型的自动布局）
+- Node.js 18 及以上（构建 Vue 前端）
 
 ## 快速启动
 
-1. 安装依赖：双击 `install_deps.bat`（依赖安装到 `deps` 目录，PlantUML 渲染器自动下载，不污染系统环境）
+1. 安装依赖：双击 `install_deps.bat`（Python 依赖安装到 `deps` 目录，PlantUML 渲染器自动下载，Vue 前端自动构建；不污染系统环境）
 2. 启动：双击 `run.bat`，浏览器自动打开 `http://127.0.0.1:8000`
 3. 使用「演示模式」或按流程操作：填写论文题目 → 一键推荐 → 选择题目 → 开始生成论文
+
+前端为 Vue 3 + Vite 工程，源码位于 `frontend/src`，构建产物输出到 `frontend/dist`。如需手动构建：
+
+```
+cd frontend
+npm install
+npm run build
+```
 
 ## 配置智能写作（DeepSeek）
 
@@ -66,7 +75,14 @@ paperforge/
 │   ├── ai_client.py       # 写作引擎接入（选题、论文、单章、PlantUML 代码生成）
 │   ├── chart_engine.py    # 图表渲染（PlantUML 与本地绘图兜底）
 │   └── exporter.py        # Word / Markdown 导出（含图片嵌入）
-└── frontend/              # 单页前端（原生 HTML/CSS/JS）
+└── frontend/              # Vue 3 + Vite 前端工程
+    ├── index.html         # 页面入口
+    ├── src/App.vue        # 主组件
+    ├── src/components/    # 章节卡片、图表项等组件
+    ├── src/store.js       # 全局状态
+    ├── src/api.js         # 接口封装
+    ├── src/utils.js       # 渲染与工具函数
+    └── dist/              # 构建产物（git 忽略）
 ```
 
 ## 团队协作

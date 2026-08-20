@@ -158,21 +158,6 @@ body {
   border-color: var(--blue);
   box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.12);
 }
-.text-input.title-input {
-  font-size: 15px;
-  padding: 11px 13px;
-  border: 1.5px solid var(--blue);
-  font-weight: 600;
-  color: var(--blue-dark);
-}
-.text-input.title-input::placeholder {
-  color: #8a97a8;
-  font-weight: 400;
-}
-.text-input.title-input:focus {
-  border-color: var(--blue-dark);
-  box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.14);
-}
 .requirements-input {
   min-height: 76px;
   resize: vertical;
