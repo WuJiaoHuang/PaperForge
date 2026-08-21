@@ -14,6 +14,7 @@ from .chapter import (
     ChapterUpdate,
     ChapterResponse,
     ChapterRegenerateRequest,
+    ChapterRegenerateResponse,
     ChapterBatchUpdate,
 )
 from .design import (
@@ -22,14 +23,17 @@ from .design import (
     DesignResponse,
     DesignDiffRequest,
     DesignAffectedChapters,
+    DesignConsistencyCheck,
 )
 from .template import (
     TemplateConfigCreate,
     TemplateConfigUpdate,
     TemplateConfigResponse,
+    ChapterConfigItem,
     ChapterOrderUpdate,
     CustomChapterCreate,
     TemplateApplyRequest,
+    TemplatePreviewResponse,
 )
 
 __all__ = [
@@ -45,6 +49,7 @@ __all__ = [
     "ChapterUpdate",
     "ChapterResponse",
     "ChapterRegenerateRequest",
+    "ChapterRegenerateResponse",
     "ChapterBatchUpdate",
     # Design
     "DesignCreate",
@@ -52,11 +57,14 @@ __all__ = [
     "DesignResponse",
     "DesignDiffRequest",
     "DesignAffectedChapters",
+    "DesignConsistencyCheck",
     # Template
     "TemplateConfigCreate",
     "TemplateConfigUpdate",
     "TemplateConfigResponse",
+    "ChapterConfigItem",
     "ChapterOrderUpdate",
     "CustomChapterCreate",
     "TemplateApplyRequest",
+    "TemplatePreviewResponse",
 ]

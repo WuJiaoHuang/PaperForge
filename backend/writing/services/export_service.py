@@ -125,20 +125,25 @@ class ExportService:
         # 构建 payload
         payload = {
             "id": paper.id,
-            "title": paper.title,
-            "techs": paper.techs,
-            "word_level": paper.word_level,
-            "style": paper.style,
-            "requirements": paper.requirements or "",
-            "system_design": design.to_dict() if design else None,
-            "chapters": chapters_data,
-            "chart_suggestions": [],  # TODO: 从图表服务获取
-            "stats": {
-                "word_count": paper.word_count,
-                "chapter_count": len(chapters_data),
-            },
-            "mode": paper.mode,
-            "generated_at": paper.generated_at.isoformat() if paper.generated_at else "",
+        "title": paper.title,
+        "techs": paper.techs,
+        "word_level": paper.word_level,
+        "style": paper.style,
+        "requirements": paper.requirements or "",
+        "system_design": design.to_dict() if design else None,
+        "chapters": chapters_data,
+        "chart_suggestions": await self._get_chart_suggestions(db, paper_id),  # 从数据库或图表服务获取
+        "chart_counter": {  # 新增：图表编号计数器
+            "chapter_3": 0,  # 第3章图表计数
+            "chapter_4": 0,
+            "chapter_5": 0,
+        },
+        "stats": {
+            "word_count": paper.word_count,
+            "chapter_count": len(chapters_data),
+        },
+        "mode": paper.mode,
+        "generated_at": paper.generated_at.isoformat() if paper.generated_at else "",
         }
 
         return payload
@@ -186,3 +191,50 @@ class ExportService:
             ],
             "export_formats": ["docx", "markdown"],
         }
+
+    async def _get_chart_suggestions(
+        self,
+        db: AsyncSession,
+        paper_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        获取图表建议清单
+        
+        优先从数据库读取，如果没有则调用成员3的图表服务生成
+        """
+        # TODO: 等成员3的图表服务对接后，调用其接口
+        # 目前返回默认的图表建议（从 template_engine 获取）
+        from backend.core.template_engine import chart_suggestions
+        return chart_suggestions()
+
+    # 导出前预处理章节内容，替换图表占位符为带编号的图片
+def _process_chart_references(
+    self,
+    chapters: List[Dict],
+    chart_suggestions: List[Dict],
+) -> List[Dict]:
+    """
+    处理图表引用，为每个图表分配编号
+    
+    将 "【此处建议插入:图 3-1】" 替换为实际的图表编号
+    """
+    chart_index = {}
+    for suggestion in chart_suggestions:
+        key = suggestion.get("fig", "")
+        chart_index[key] = {
+            "number": suggestion.get("fig", ""),
+            "title": suggestion.get("title", ""),
+            "position": suggestion.get("position", ""),
+        }
+    
+    for chapter in chapters:
+        content = chapter.get("content_md", "")
+        # 替换占位符为带编号的图表引用
+        for fig_key, info in chart_index.items():
+            placeholder = f"【此处建议插入:{fig_key}】"
+            if placeholder in content:
+                new_ref = f"\n\n{fig_key} {info['title']}\n\n"
+                content = content.replace(placeholder, new_ref)
+        chapter["content_md"] = content
+    
+    return chapters

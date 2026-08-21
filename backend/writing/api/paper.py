@@ -4,12 +4,15 @@
 import uuid
 import asyncio
 from typing import Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from backend.dependencies import get_db
-from backend.utils import ProgressPublisher, logger
+from backend.utils import logger
 from backend.tasks import generate_paper_task
 from ..services import WritingService, TemplateService
 from ..schemas import (
@@ -20,6 +23,7 @@ from ..schemas import (
     PaperGenerateRequest,
     PaperGenerateResponse,
 )
+from ..models import Paper, Chapter
 
 router = APIRouter(prefix="/papers", tags=["论文管理"])
 writing_service = WritingService()
@@ -41,7 +45,6 @@ async def create_paper(
     if not template_config:
         template_config = await template_service.get_default_config(db)
 
-    from ..models import Paper
     paper = Paper(
         id=paper_id,
         title=data.title,
@@ -73,8 +76,6 @@ async def list_papers(
     db: AsyncSession = Depends(get_db),
 ):
     """获取论文列表"""
-    from sqlalchemy import select, func
-
     query = select(Paper)
     if status:
         query = query.where(Paper.status == status)
@@ -110,7 +111,6 @@ async def get_paper(
         raise HTTPException(status_code=404, detail="论文不存在")
 
     # 加载关联数据
-    from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(Paper)
         .where(Paper.id == paper_id)
@@ -156,8 +156,6 @@ async def delete_paper(
         raise HTTPException(status_code=404, detail="论文不存在")
 
     # 软删除：禁用所有章节
-    from sqlalchemy import update
-    from ..models import Chapter
     await db.execute(
         update(Chapter).where(Chapter.paper_id == paper_id).values(is_enabled=False)
     )
@@ -207,64 +205,63 @@ async def stream_paper_progress(
     """
     SSE 流式推送论文生成进度
     
-    使用方式：
-    const eventSource = new EventSource('/api/v1/writing/papers/{id}/stream')
-    eventSource.addEventListener('stage', (e) => console.log(e.data))
-    eventSource.addEventListener('chapter', (e) => console.log(e.data))
-    eventSource.addEventListener('done', (e) => console.log(e.data))
+    从 Redis 读取 Celery 任务推送的进度消息
     """
     paper = await writing_service._get_paper(db, paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
-
-    # 创建事件队列
-    event_queue = asyncio.Queue()
-    publisher = ProgressPublisher(event_queue)
-
-    # 推送初始状态
-    await publisher.publish_stage(0, 11, "准备生成", "正在初始化...")
-
+    
     async def event_generator():
-        try:
-            # 这里会持续推送事件，直到 publisher 关闭
-            # 实际进度由 Celery 任务通过 Redis 或数据库更新
-            # 这里使用轮询方式检查状态
-            while True:
-                # 检查论文状态
-                await db.refresh(paper)
-                if paper.status == "done":
-                    await publisher.publish_done(paper_id, "生成完成")
-                    break
-                elif paper.status == "draft":
-                    await publisher.publish_error("生成失败")
-                    break
-
-                # 检查是否有新章节
-                from sqlalchemy import select
-                from ..models import Chapter
-                result = await db.execute(
-                    select(Chapter).where(
-                        Chapter.paper_id == paper_id,
-                        Chapter.is_enabled == True,
-                    ).order_by(Chapter.seq)
-                )
-                chapters = result.scalars().all()
-
-                # 推送已完成的章节
-                for ch in chapters:
-                    if ch.content_md and ch.status == "generated":
-                        await publisher.publish_chapter(ch.seq, ch.key, ch.title, ch.content_md)
-
-                await asyncio.sleep(2)  # 每2秒检查一次
-
-            # 从队列获取事件并推送
-            async for sse_event in sse_generator(event_queue):
-                yield sse_event
-
-        except asyncio.CancelledError:
-            publisher.close()
-            raise
-
+        # TODO: 对接 Redis Pub/Sub
+        # 当前使用轮询方式（过渡方案）
+        last_chapter_count = 0
+        
+        while True:
+            # 检查论文状态
+            await db.refresh(paper)
+            
+            if paper.status == "done":
+                yield SSEEvent(
+                    event="done",
+                    data={"type": "done", "paper_id": paper_id, "message": "生成完成"}
+                ).to_sse()
+                break
+            
+            if paper.status == "error":
+                yield SSEEvent(
+                    event="error",
+                    data={"type": "error", "message": paper.note or "生成失败"}
+                ).to_sse()
+                break
+            
+            # 获取已生成的章节
+            result = await db.execute(
+                select(Chapter).where(
+                    Chapter.paper_id == paper_id,
+                    Chapter.is_enabled == True,
+                    Chapter.content_md.isnot(None),
+                ).order_by(Chapter.seq)
+            )
+            chapters = result.scalars().all()
+            
+            # 如果有新章节，推送
+            if len(chapters) > last_chapter_count:
+                for ch in chapters[last_chapter_count:]:
+                    yield SSEEvent(
+                        event="chapter",
+                        data={
+                            "type": "chapter",
+                            "seq": ch.seq,
+                            "key": ch.key,
+                            "title": ch.title,
+                            "content_md": ch.content_md,
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    ).to_sse()
+                last_chapter_count = len(chapters)
+            
+            await asyncio.sleep(2)  # 每2秒检查一次
+    
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",

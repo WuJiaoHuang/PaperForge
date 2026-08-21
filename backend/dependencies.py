@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-from .config import settings
+from .config import Settings, settings
 
 # ========== 异步数据库引擎 ==========
 async_engine = create_async_engine(

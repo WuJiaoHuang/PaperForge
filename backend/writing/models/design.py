@@ -55,7 +55,7 @@ class Design(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow, comment="更新时间")
 
     # 关联
-    papers: Mapped[List["Paper"]] = relationship("Paper", back_populates="design", foreign_keys=[Design.paper_id])
+    papers: Mapped[List["Paper"]] = relationship("Paper", back_populates="design", foreign_keys=["Design.paper_id"])
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""

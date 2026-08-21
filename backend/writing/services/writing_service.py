@@ -157,12 +157,86 @@ class WritingService:
         design: Design,
     ) -> Dict[str, Any]:
         """使用模板生成"""
-        return generate_paper_template(
+        result = generate_paper_template(
             title=paper.title,
-            techs=paper.techs,
-            level=paper.word_level,
-            style=paper.style,
+           techs=paper.techs,
+           level=paper.word_level,
+           style=paper.style,
         )
+    
+        # 动态生成图表建议（基于实际系统设定）
+        result["chart_suggestions"] = self._build_dynamic_chart_suggestions(
+            result.get("system_design", {}),
+            paper.title,
+            paper.techs,
+        )
+    
+        return result
+
+    def _build_dynamic_chart_suggestions(
+        self,
+        design: Dict,
+        title: str,
+        techs: List[str],
+    ) -> List[Dict[str, str]]:
+        """
+        动态生成图表建议清单
+    
+        根据系统设定自动判断需要哪些图表
+        """
+        suggestions = []
+    
+        # 判断是否有角色和功能 → 需要用例图
+        if design.get("roles") and design.get("features"):
+            suggestions.append({
+                "fig": "图 3-1",
+                "title": "系统用例图",
+                "type": "usecase",
+                "position": "第 3 章 需求分析",
+                "material": "角色与功能描述文字",
+            })
+    
+        # 判断是否有技术栈 → 需要架构图
+        if techs:
+            suggestions.append({
+                "fig": "图 4-1",
+                "title": "系统架构图",
+                "type": "architecture",
+                "position": "第 4 章 系统设计",
+                "material": "技术栈 / 部署说明文字",
+            })
+    
+        # 判断是否有模块 → 需要功能模块图
+        if design.get("modules"):
+            suggestions.append({
+                "fig": "图 4-2",
+                "title": "功能模块图",
+                "type": "module",
+                "position": "第 4 章 模块设计",
+                "material": "模块说明(可自动预填)",
+            })
+    
+        # 判断是否有数据表 → 需要 E-R 图
+        if design.get("tables"):
+            suggestions.append({
+                "fig": "图 4-3",
+                "title": "E-R 图",
+                "type": "er",
+                "position": "第 4 章 数据库设计",
+                "material": "SQL 建表语句",
+            })
+    
+        # 判断是否有功能 → 需要流程图
+        if design.get("features"):
+            suggestions.append({
+                "fig": "图 5-1",
+                "title": "核心业务流程图",
+                "type": "flow",
+                "position": "第 5 章 系统实现",
+                "material": "业务流程文字",
+            })
+    
+        return suggestions
 
     # ==================== 章节重写 ====================
 

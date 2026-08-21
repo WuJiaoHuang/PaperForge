@@ -3,6 +3,7 @@
 
 import os
 from typing import Optional, List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -14,6 +15,14 @@ class Settings(BaseSettings):
     APP_VERSION: str = "2.0.0"
     DEBUG: bool = False
     SECRET_KEY: str = "your-secret-key-change-in-production"
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def _parse_debug(cls, v):
+        """兼容系统环境变量中 DEBUG=release 这类非布尔值。"""
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "yes", "on", "y")
+        return v
     
     # ========== 数据库 ==========
     DB_HOST: str = "localhost"

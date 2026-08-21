@@ -653,3 +653,7 @@ def suggest_topics(keywords, techs, count=4, batch=0):
     start = (batch * 2) % len(candidates)
     picked = (candidates * 2)[start:start + count]
     return picked
+
+
+# 兼容组员 writing 模块:章节顺序定义在 ai_client 中
+from .ai_client import CHAPTER_ORDER  # noqa: E402
