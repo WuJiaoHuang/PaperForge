@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import selectinload
 
 from backend.dependencies import get_db
@@ -65,7 +65,18 @@ async def create_paper(
             db, paper_id, template_config.id, regenerate_existing=False
         )
 
-    return paper
+    # 重新查询论文，加载关联的 chapters 和 design
+    result = await db.execute(
+        select(Paper)
+        .where(Paper.id == paper_id)
+        .options(
+            selectinload(Paper.chapters),
+            selectinload(Paper.design),
+        )
+    )
+    paper = result.scalar_one_or_none()
+
+    return PaperResponse.model_validate(paper)
 
 
 @router.get("", response_model=PaperListResponse)
@@ -87,7 +98,17 @@ async def list_papers(
     total = await db.execute(count_query)
     total = total.scalar() or 0
 
-    query = query.order_by(Paper.updated_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    # 加载关联数据，避免懒加载在异步上下文外访问
+    query = (
+        query
+        .order_by(Paper.updated_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .options(
+            selectinload(Paper.chapters),
+            selectinload(Paper.design),
+        )
+    )
     result = await db.execute(query)
     items = result.scalars().all()
 
@@ -106,11 +127,7 @@ async def get_paper(
     db: AsyncSession = Depends(get_db),
 ):
     """获取论文详情"""
-    paper = await writing_service._get_paper(db, paper_id)
-    if not paper:
-        raise HTTPException(status_code=404, detail="论文不存在")
-
-    # 加载关联数据
+    # 直接查询并加载关联数据
     result = await db.execute(
         select(Paper)
         .where(Paper.id == paper_id)
@@ -120,8 +137,10 @@ async def get_paper(
         )
     )
     paper = result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
 
-    return paper
+    return PaperResponse.model_validate(paper)
 
 
 @router.put("/{paper_id}", response_model=PaperResponse)
@@ -142,7 +161,18 @@ async def update_paper(
 
     await db.commit()
     await db.refresh(paper)
-    return paper
+
+    # 重新加载关联数据
+    result = await db.execute(
+        select(Paper)
+        .where(Paper.id == paper_id)
+        .options(
+            selectinload(Paper.chapters),
+            selectinload(Paper.design),
+        )
+    )
+    paper = result.scalar_one_or_none()
+    return PaperResponse.model_validate(paper)
 
 
 @router.delete("/{paper_id}")

@@ -92,7 +92,7 @@ def _finalize(fig):
 
 def render_plantuml(source):
     """用本地 PlantUML(java + graphviz)把标准代码渲染成 PNG;失败返回 None。"""
-    jar = Path(__file__).resolve().parent.parent / "deps" / "plantuml.jar"
+    jar = Path(__file__).resolve().parents[2] / "deps" / "plantuml.jar"
     if not jar.exists():
         return None
     try:
