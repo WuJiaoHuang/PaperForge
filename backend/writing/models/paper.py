@@ -3,7 +3,7 @@
 
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, Boolean
+from sqlalchemy import String, Integer, Text, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from backend.dependencies import Base
@@ -42,15 +42,16 @@ class Paper(Base):
 
     # 外键
     user_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="用户ID（预留）")
-    design_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="系统设定ID")
+    design_id: Mapped[Optional[str]] = mapped_column(String(32), ForeignKey("designs.id"), nullable=True, comment="系统设定ID")
 
-    # 关联关系
+    # 关联关系 - 多个 Chapter 属于一个 Paper（一对多）
     chapters: Mapped[List["Chapter"]] = relationship(
         "Chapter",
         back_populates="paper",
         order_by="Chapter.seq",
         cascade="all, delete-orphan",
     )
+    # Paper 属于一个 Design（多对一）
     design: Mapped[Optional["Design"]] = relationship(
         "Design",
         back_populates="papers",

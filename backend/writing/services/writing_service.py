@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """写作服务 - 论文生成、章节重写、智能更新、一致性保障"""
 
 import uuid
@@ -46,13 +46,13 @@ class WritingService:
     ) -> Paper:
         """
         生成完整论文（支持 AI 和模板两种模式）
-        
+
         Args:
             db: 数据库会话
             paper_id: 论文ID
             use_ai: 是否使用AI
             publisher: SSE进度发布器
-        
+
         Returns:
             更新后的论文对象
         """
@@ -157,12 +157,86 @@ class WritingService:
         design: Design,
     ) -> Dict[str, Any]:
         """使用模板生成"""
-        return generate_paper_template(
+        result = generate_paper_template(
             title=paper.title,
-            techs=paper.techs,
-            level=paper.word_level,
-            style=paper.style,
+           techs=paper.techs,
+           level=paper.word_level,
+           style=paper.style,
         )
+
+        # 动态生成图表建议（基于实际系统设定）
+        result["chart_suggestions"] = self._build_dynamic_chart_suggestions(
+            result.get("system_design", {}),
+            paper.title,
+            paper.techs,
+        )
+
+        return result
+
+    def _build_dynamic_chart_suggestions(
+        self,
+        design: Dict,
+        title: str,
+        techs: List[str],
+    ) -> List[Dict[str, str]]:
+        """
+        动态生成图表建议清单
+
+        根据系统设定自动判断需要哪些图表
+        """
+        suggestions = []
+
+        # 判断是否有角色和功能 → 需要用例图
+        if design.get("roles") and design.get("features"):
+            suggestions.append({
+                "fig": "图 3-1",
+                "title": "系统用例图",
+                "type": "usecase",
+                "position": "第 3 章 需求分析",
+                "material": "角色与功能描述文字",
+            })
+
+        # 判断是否有技术栈 → 需要架构图
+        if techs:
+            suggestions.append({
+                "fig": "图 4-1",
+                "title": "系统架构图",
+                "type": "architecture",
+                "position": "第 4 章 系统设计",
+                "material": "技术栈 / 部署说明文字",
+            })
+
+        # 判断是否有模块 → 需要功能模块图
+        if design.get("modules"):
+            suggestions.append({
+                "fig": "图 4-2",
+                "title": "功能模块图",
+                "type": "module",
+                "position": "第 4 章 模块设计",
+                "material": "模块说明(可自动预填)",
+            })
+
+        # 判断是否有数据表 → 需要 E-R 图
+        if design.get("tables"):
+            suggestions.append({
+                "fig": "图 4-3",
+                "title": "E-R 图",
+                "type": "er",
+                "position": "第 4 章 数据库设计",
+                "material": "SQL 建表语句",
+            })
+
+        # 判断是否有功能 → 需要流程图
+        if design.get("features"):
+            suggestions.append({
+                "fig": "图 5-1",
+                "title": "核心业务流程图",
+                "type": "flow",
+                "position": "第 5 章 系统实现",
+                "material": "业务流程文字",
+            })
+
+        return suggestions
 
     # ==================== 章节重写 ====================
 
@@ -176,14 +250,14 @@ class WritingService:
     ) -> Chapter:
         """
         重新生成某个章节
-        
+
         Args:
             db: 数据库会话
             paper_id: 论文ID
             chapter_key: 章节Key
             instructions: 用户修改意见
             use_ai: 是否使用AI
-        
+
         Returns:
             更新后的章节对象
         """
@@ -265,12 +339,12 @@ class WritingService:
     ) -> Dict[str, Any]:
         """
         智能更新：当系统设定变化时，重写受影响章节
-        
+
         Args:
             db: 数据库会话
             paper_id: 论文ID
             new_design: 新的系统设定
-        
+
         Returns:
             更新结果
         """
@@ -349,7 +423,7 @@ class WritingService:
     ) -> Dict[str, Any]:
         """
         分析哪些章节受设计变更影响
-        
+
         影响规则：
         - 模块名变化 → 影响 ch3(需求分析), ch4(系统设计), ch5(系统实现)
         - 角色名变化 → 影响 ch3(需求分析), ch4(系统设计)
@@ -391,7 +465,7 @@ class WritingService:
     ) -> DesignConsistencyCheck:
         """
         检查全篇一致性
-        
+
         验证所有章节中的模块名、角色名、表名是否与 design 一致
         """
         paper = await self._get_paper(db, paper_id)

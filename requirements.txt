@@ -3,8 +3,10 @@ uvicorn
 python-docx
 openai>=1.40,<2
 python-dotenv
+matplotlib
 pydantic-settings
 sqlalchemy>=2.0
 aiomysql
 celery
 redis
+cryptography
