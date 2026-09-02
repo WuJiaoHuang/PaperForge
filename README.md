@@ -1,6 +1,6 @@
 # 论文工坊 PaperForge
 
-毕业设计论文写作辅助系统。基于研究方向与所选技术栈，推荐备选题目，自动生成结构完整的论文初稿，并提供图表生成、文档导出与多人协作能力。
+毕业设计论文写作辅助系统。基于研究方向与所选技术栈，推荐备选题目，自动生成结构完整的论文初稿，并提供图表生成与文档导出能力。
 
 ## 已实现功能
 
@@ -13,7 +13,7 @@
 
 - 支持智能写作（DeepSeek），未配置密钥时自动使用本地模板，演示不中断
 - 生成前可填写补充需求，论文按需求撰写；不填也可正常生成
-- 生成过程实时显示，已完成章节立即呈现，无需等待全部完成
+- 生成任务由 Celery 异步执行，生成过程通过 SSE 展示；当前 SSE 采用数据库轮询论文状态，Redis Pub/Sub 尚未实现
 
 ### 3. 章节编辑与单章重写
 
@@ -37,13 +37,15 @@
 ## 环境要求
 
 - Python 3.10 及以上
+- MySQL 8.x（业务数据存储，后端使用 SQLAlchemy / aiomysql 访问）
+- Redis（Celery broker/result backend；当前不承担 SSE Pub/Sub）
 - Java 17 及以上（用于 PlantUML 渲染）
 - Graphviz（PlantUML 依赖，用于部分图型的自动布局）
 - Node.js 18 及以上（构建 Vue 前端）
 
 ## 快速启动
 
-1. 安装依赖：双击 `install_deps.bat`（Python 依赖安装到 `deps` 目录，PlantUML 渲染器自动下载，Vue 前端自动构建；不污染系统环境）
+1. 安装依赖：双击 `install_deps.bat`（使用当前激活的 Python 环境执行 `python -m pip install -r requirements.txt`，PlantUML 渲染器下载到 `tools/plantuml.jar`，Vue 前端自动构建）
 2. 启动：双击 `run.bat`，浏览器自动打开 `http://127.0.0.1:8000`
 3. 使用「演示模式」或按流程操作：填写论文题目 → 一键推荐 → 选择题目 → 开始生成论文
 
@@ -54,6 +56,14 @@ cd frontend
 npm install
 npm run build
 ```
+
+## 后端架构说明
+
+- Web 框架：FastAPI
+- 数据库：MySQL，ORM 使用 SQLAlchemy，异步驱动使用 aiomysql
+- 异步任务：Celery
+- Redis：用于 Celery broker/result backend
+- 生成进度：SSE 端点当前采用数据库轮询论文状态；Redis Pub/Sub 尚未接入
 
 ## 配置智能写作（DeepSeek）
 
@@ -70,11 +80,10 @@ paperforge/
 ├── run.bat / install_deps.bat
 ├── requirements.txt / .env.example / .gitignore
 ├── backend/
-│   ├── main.py            # FastAPI 入口：选题、论文生成、章节重写、图表生成、导出
-│   ├── template_engine.py # 本地模板引擎（选题兜底、论文生成兜底、系统设定推导）
-│   ├── ai_client.py       # 写作引擎接入（选题、论文、单章、PlantUML 代码生成）
-│   ├── chart_engine.py    # 图表渲染（PlantUML 与本地绘图兜底）
-│   └── exporter.py        # Word / Markdown 导出（含图片嵌入）
+│   ├── main.py            # FastAPI 入口
+│   ├── core/              # AI、模板、图表等核心能力
+│   ├── tasks/             # Celery 异步任务
+│   └── writing/           # 论文、章节、设计版本、导出等 V2 模块
 └── frontend/              # Vue 3 + Vite 前端工程
     ├── index.html         # 页面入口
     ├── src/App.vue        # 主组件

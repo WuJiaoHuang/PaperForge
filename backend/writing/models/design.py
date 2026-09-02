@@ -54,13 +54,12 @@ class Design(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow, comment="更新时间")
 
-    # 关联 - 一个 Design 对应多个 Paper（一对多）
-    papers: Mapped[List["Paper"]] = relationship(
+    # 所属 Paper：Design.paper_id -> Paper.id
+    paper: Mapped[Optional["Paper"]] = relationship(
         "Paper",
-        back_populates="design",
-        # 使用 remote_side 明确指向 Design.id
-        primaryjoin="Design.id == Paper.design_id",
-        foreign_keys="Paper.design_id",
+        back_populates="design_versions",
+        foreign_keys=[paper_id],
+        primaryjoin="Design.paper_id == Paper.id",
     )
 
     def to_dict(self) -> Dict[str, Any]:

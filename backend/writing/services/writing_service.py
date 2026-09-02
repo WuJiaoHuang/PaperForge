@@ -108,11 +108,12 @@ class WritingService:
             return paper
 
         except Exception as e:
-            paper.status = "draft"
+            paper.status = "error"
+            paper.note = self._error_summary(e)
             await db.commit()
-            logger.error(f"论文生成失败: {paper_id}, error={e}")
+            logger.logger.exception("论文生成失败: %s", paper_id)
             if publisher:
-                await publisher.publish_error(str(e))
+                await publisher.publish_error(paper.note)
             raise
 
     async def _generate_with_ai(
@@ -237,6 +238,11 @@ class WritingService:
             })
 
         return suggestions
+
+    def _error_summary(self, exc: Exception) -> str:
+        """生成可入库的错误摘要，避免把 traceback 或敏感上下文写入数据库。"""
+        message = str(exc).strip() or exc.__class__.__name__
+        return f"论文生成失败: {message[:200]}"
 
     # ==================== 章节重写 ====================
 

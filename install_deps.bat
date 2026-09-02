@@ -9,11 +9,7 @@ echo ========================================
 
 echo.
 echo [1/4] Installing Python dependencies...
-if exist "D:\Anaconda\envs\pytorch_env\python.exe" (
-    "D:\Anaconda\envs\pytorch_env\python.exe" -m pip install -r requirements.txt
-) else (
-    python -m pip install -r requirements.txt
-)
+python -m pip install -r requirements.txt
 
 if errorlevel 1 (
     echo [ERROR] Python dependency installation failed.
@@ -40,11 +36,7 @@ if not exist "tools\plantuml.jar" (
 echo.
 echo [3/4] Checking Python environment...
 
-if exist "D:\Anaconda\envs\pytorch_env\python.exe" (
-    "D:\Anaconda\envs\pytorch_env\python.exe" -c "import fastapi, uvicorn, docx, openai, dotenv, matplotlib; print('Python environment OK')"
-) else (
-    python -c "import fastapi, uvicorn, docx, openai, dotenv, matplotlib; print('Python environment OK')"
-)
+python -c "import fastapi, uvicorn, docx, openai, dotenv, matplotlib, sqlalchemy, aiomysql, celery, redis, pydantic_settings, cryptography; print('Python environment OK')"
 
 if errorlevel 1 (
     echo [ERROR] Python environment check failed.

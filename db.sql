@@ -35,7 +35,7 @@ CREATE TABLE `papers` (
     `updated_at` DATETIME NULL COMMENT '更新时间',
     `note` TEXT NULL COMMENT '备注信息',
     `user_id` VARCHAR(32) NULL COMMENT '用户ID（预留）',
-    `design_id` VARCHAR(32) NULL COMMENT '系统设定ID',
+    `design_id` VARCHAR(32) NULL COMMENT '当前激活系统设定ID',
     PRIMARY KEY (`id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '论文主表';
 

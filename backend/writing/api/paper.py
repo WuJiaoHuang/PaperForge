@@ -3,6 +3,8 @@
 
 import uuid
 import asyncio
+import os
+import time
 from typing import Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,6 +30,7 @@ from ..models import Paper, Chapter
 router = APIRouter(prefix="/papers", tags=["论文管理"])
 writing_service = WritingService()
 template_service = TemplateService()
+SSE_MAX_LIFETIME_SECONDS = int(os.getenv("PAPERFORGE_SSE_MAX_LIFETIME_SECONDS", "1800"))
 
 
 @router.post("", response_model=PaperResponse)
@@ -235,18 +238,28 @@ async def stream_paper_progress(
     """
     SSE 流式推送论文生成进度
 
-    从 Redis 读取 Celery 任务推送的进度消息
+    当前使用数据库轮询论文状态；Redis Pub/Sub 尚未接入。
     """
     paper = await writing_service._get_paper(db, paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
 
     async def event_generator():
-        # TODO: 对接 Redis Pub/Sub
-        # 当前使用轮询方式（过渡方案）
+        started_at = time.monotonic()
         last_chapter_count = 0
 
         while True:
+            if time.monotonic() - started_at >= SSE_MAX_LIFETIME_SECONDS:
+                yield SSEEvent(
+                    event="timeout",
+                    data={
+                        "type": "timeout",
+                        "paper_id": paper_id,
+                        "message": "生成进度监听超时，请稍后刷新论文状态",
+                    },
+                ).to_sse()
+                break
+
             # 检查论文状态
             await db.refresh(paper)
 

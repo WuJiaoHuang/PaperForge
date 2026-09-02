@@ -25,7 +25,7 @@ class Paper(Base):
     requirements: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="用户补充需求")
 
     # 状态
-    status: Mapped[str] = mapped_column(String(20), default="draft", comment="状态: draft/generating/done/updating")
+    status: Mapped[str] = mapped_column(String(20), default="draft", comment="状态: draft/generating/done/updating/error/deleted")
     mode: Mapped[str] = mapped_column(String(20), default="template", comment="生成模式: template/ai")
 
     # 统计
@@ -42,7 +42,7 @@ class Paper(Base):
 
     # 外键
     user_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="用户ID（预留）")
-    design_id: Mapped[Optional[str]] = mapped_column(String(32), ForeignKey("designs.id"), nullable=True, comment="系统设定ID")
+    design_id: Mapped[Optional[str]] = mapped_column(String(32), ForeignKey("designs.id"), nullable=True, comment="当前激活系统设定ID")
 
     # 关联关系 - 多个 Chapter 属于一个 Paper（一对多）
     chapters: Mapped[List["Chapter"]] = relationship(
@@ -51,11 +51,21 @@ class Paper(Base):
         order_by="Chapter.seq",
         cascade="all, delete-orphan",
     )
-    # Paper 属于一个 Design（多对一）
+    # 当前激活的 Design 版本：Paper.design_id -> Design.id
     design: Mapped[Optional["Design"]] = relationship(
         "Design",
-        back_populates="papers",
         foreign_keys=[design_id],
+        uselist=False,
+        post_update=True,
+    )
+
+    # 当前 Paper 的所有 Design 历史版本：Design.paper_id -> Paper.id
+    design_versions: Mapped[List["Design"]] = relationship(
+        "Design",
+        back_populates="paper",
+        foreign_keys="Design.paper_id",
+        primaryjoin="Paper.id == Design.paper_id",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self):
