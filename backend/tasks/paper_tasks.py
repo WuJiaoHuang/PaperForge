@@ -2,6 +2,7 @@
 """PaperForge V2 论文生成异步任务"""
 
 import asyncio
+from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any
 from celery import Task
 
@@ -99,11 +100,31 @@ def _extract_paper_id(args, kwargs) -> Optional[str]:
 
 async def _mark_paper_error(paper_id: str, exc: BaseException):
     """Celery 任务失败兜底：只保存摘要，不把 traceback 写入数据库。"""
+    from ..writing.models import Paper
+
+    async with _task_db_session() as db:
+        paper = await db.get(Paper, paper_id)
+        if not paper:
+            logger.error(f"任务失败兜底未找到论文: {paper_id}")
+            return
+
+        paper.status = "error"
+        paper.note = _error_summary(exc)
+        await db.commit()
+
+
+def _error_summary(exc: BaseException) -> str:
+    message = str(exc).strip() or exc.__class__.__name__
+    return f"论文生成失败: {message[:200]}"
+
+
+@asynccontextmanager
+async def _task_db_session():
+    """为每个 Celery 任务事件循环创建独立 async engine/session。"""
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.orm import sessionmaker
 
     from ..config import settings
-    from ..writing.models import Paper
 
     engine = create_async_engine(settings.DATABASE_URL_ASYNC, pool_pre_ping=True)
     session_factory = sessionmaker(
@@ -115,21 +136,9 @@ async def _mark_paper_error(paper_id: str, exc: BaseException):
     )
     try:
         async with session_factory() as db:
-            paper = await db.get(Paper, paper_id)
-            if not paper:
-                logger.error(f"任务失败兜底未找到论文: {paper_id}")
-                return
-
-            paper.status = "error"
-            paper.note = _error_summary(exc)
-            await db.commit()
+            yield db
     finally:
         await engine.dispose()
-
-
-def _error_summary(exc: BaseException) -> str:
-    message = str(exc).strip() or exc.__class__.__name__
-    return f"论文生成失败: {message[:200]}"
 
 
 async def _generate_paper_async(
@@ -138,55 +147,39 @@ async def _generate_paper_async(
     task_id: str,
 ) -> Dict[str, Any]:
     """异步执行论文生成"""
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from sqlalchemy.orm import sessionmaker
-
-    from ..config import settings
     from ..writing.services import WritingService
     from ..utils import ProgressPublisher
 
-    engine = create_async_engine(settings.DATABASE_URL_ASYNC, pool_pre_ping=True)
-    session_factory = sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
+    async with _task_db_session() as db:
+        # Celery worker 内部进度队列；当前 SSE 仍通过数据库轮询结束，不代表 Redis Pub/Sub 已实现。
+        event_queue = asyncio.Queue()
+        publisher = ProgressPublisher(event_queue)
 
-    try:
-        async with session_factory() as db:
-            # Celery worker 内部进度队列；当前 SSE 仍通过数据库轮询结束，不代表 Redis Pub/Sub 已实现。
-            event_queue = asyncio.Queue()
-            publisher = ProgressPublisher(event_queue)
+        service = WritingService()
 
-            service = WritingService()
+        try:
+            paper = await service.generate_paper(
+                db=db,
+                paper_id=paper_id,
+                use_ai=use_ai,
+                publisher=publisher,
+            )
 
-            try:
-                paper = await service.generate_paper(
-                    db=db,
-                    paper_id=paper_id,
-                    use_ai=use_ai,
-                    publisher=publisher,
-                )
+            # TODO: 将进度推送到 Redis，供 SSE 端点读取
+            # await redis_client.publish(f"paper:{paper_id}:progress", ...)
 
-                # TODO: 将进度推送到 Redis，供 SSE 端点读取
-                # await redis_client.publish(f"paper:{paper_id}:progress", ...)
+            return {
+                "task_id": task_id,
+                "paper_id": paper_id,
+                "status": "success",
+                "mode": paper.mode,
+                "word_count": paper.word_count,
+                "chapter_count": paper.chapter_count,
+            }
 
-                return {
-                    "task_id": task_id,
-                    "paper_id": paper_id,
-                    "status": "success",
-                    "mode": paper.mode,
-                    "word_count": paper.word_count,
-                    "chapter_count": paper.chapter_count,
-                }
-
-            except Exception as e:
-                logger.logger.exception("生成失败: %s", e)
-                raise
-    finally:
-        await engine.dispose()
+        except Exception as e:
+            logger.logger.exception("生成失败: %s", e)
+            raise
 
 
 @celery_app.task(name="regenerate_chapter")
@@ -223,7 +216,7 @@ async def _regenerate_chapter_async(
     """异步执行章节重写"""
     from ..writing.services import WritingService
 
-    async with AsyncSessionLocal() as db:
+    async with _task_db_session() as db:
         service = WritingService()
 
         chapter = await service.regenerate_chapter(
@@ -272,7 +265,7 @@ async def _export_paper_async(
     """异步执行导出"""
     from ..writing.services import ExportService
 
-    async with AsyncSessionLocal() as db:
+    async with _task_db_session() as db:
         service = ExportService()
 
         if format == "docx":
