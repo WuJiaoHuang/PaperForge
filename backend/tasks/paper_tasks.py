@@ -7,7 +7,6 @@ from celery import Task
 
 from .celery_app import celery_app
 from ..utils import logger
-from ..dependencies import AsyncSessionLocal
 
 
 class PaperGenerationTask(Task):
@@ -139,40 +138,55 @@ async def _generate_paper_async(
     task_id: str,
 ) -> Dict[str, Any]:
     """异步执行论文生成"""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from ..config import settings
     from ..writing.services import WritingService
     from ..utils import ProgressPublisher
 
-    # 创建数据库会话
-    async with AsyncSessionLocal() as db:
-        # Celery worker 内部进度队列；当前 SSE 仍通过数据库轮询结束，不代表 Redis Pub/Sub 已实现。
-        event_queue = asyncio.Queue()
-        publisher = ProgressPublisher(event_queue)
+    engine = create_async_engine(settings.DATABASE_URL_ASYNC, pool_pre_ping=True)
+    session_factory = sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
 
-        service = WritingService()
+    try:
+        async with session_factory() as db:
+            # Celery worker 内部进度队列；当前 SSE 仍通过数据库轮询结束，不代表 Redis Pub/Sub 已实现。
+            event_queue = asyncio.Queue()
+            publisher = ProgressPublisher(event_queue)
 
-        try:
-            paper = await service.generate_paper(
-                db=db,
-                paper_id=paper_id,
-                use_ai=use_ai,
-                publisher=publisher,
-            )
+            service = WritingService()
 
-            # TODO: 将进度推送到 Redis，供 SSE 端点读取
-            # await redis_client.publish(f"paper:{paper_id}:progress", ...)
+            try:
+                paper = await service.generate_paper(
+                    db=db,
+                    paper_id=paper_id,
+                    use_ai=use_ai,
+                    publisher=publisher,
+                )
 
-            return {
-                "task_id": task_id,
-                "paper_id": paper_id,
-                "status": "success",
-                "mode": paper.mode,
-                "word_count": paper.word_count,
-                "chapter_count": paper.chapter_count,
-            }
+                # TODO: 将进度推送到 Redis，供 SSE 端点读取
+                # await redis_client.publish(f"paper:{paper_id}:progress", ...)
 
-        except Exception as e:
-            logger.logger.exception("生成失败: %s", e)
-            raise
+                return {
+                    "task_id": task_id,
+                    "paper_id": paper_id,
+                    "status": "success",
+                    "mode": paper.mode,
+                    "word_count": paper.word_count,
+                    "chapter_count": paper.chapter_count,
+                }
+
+            except Exception as e:
+                logger.logger.exception("生成失败: %s", e)
+                raise
+    finally:
+        await engine.dispose()
 
 
 @celery_app.task(name="regenerate_chapter")

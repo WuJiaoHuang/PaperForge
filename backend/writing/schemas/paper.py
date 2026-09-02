@@ -40,7 +40,7 @@ class PaperUpdate(BaseModel):
 
 class PaperGenerateRequest(BaseModel):
     """生成论文请求"""
-    paper_id: str = Field(..., description="论文ID")
+    paper_id: Optional[str] = Field(None, description="论文ID（兼容旧请求，优先使用路径参数）")
     use_ai: bool = Field(False, description="是否使用AI")
     on_design_changed: bool = Field(False, description="是否因设计变更触发重新生成")
 
