@@ -2,6 +2,7 @@
 """导出 API 路由"""
 
 from typing import Optional
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +47,8 @@ async def export_docx(
             buf.getvalue(),
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
-                "Content-Disposition": f'attachment; filename="论文工坊_论文初稿_{paper_id}.docx"'
+                "Content-Disposition": "attachment; filename*=UTF-8''%s"
+                % quote(f"论文工坊_论文初稿_{paper_id}.docx")
             },
         )
     except ValueError as e:
@@ -72,7 +74,8 @@ async def export_markdown(
             md_text.encode("utf-8"),
             media_type="text/markdown; charset=utf-8",
             headers={
-                "Content-Disposition": f'attachment; filename="论文工坊_论文初稿_{paper_id}.md"'
+                "Content-Disposition": "attachment; filename*=UTF-8''%s"
+                % quote(f"论文工坊_论文初稿_{paper_id}.md")
             },
         )
     except ValueError as e:
@@ -104,7 +107,8 @@ async def export_docx_stream(
             stream_generator(),
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
-                "Content-Disposition": f'attachment; filename="论文工坊_论文初稿_{paper_id}.docx"'
+                "Content-Disposition": "attachment; filename*=UTF-8''%s"
+                % quote(f"论文工坊_论文初稿_{paper_id}.docx")
             },
         )
     except ValueError as e:

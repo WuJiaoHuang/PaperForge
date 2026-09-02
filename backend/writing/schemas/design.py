@@ -47,5 +47,6 @@ class DesignAffectedChapters(BaseModel):
 
 
 class DesignConsistencyCheck(BaseModel):
-    consistent: bool = True
+    is_consistent: bool = True
     issues: List[str] = Field(default_factory=list)
+    summary: str = ""

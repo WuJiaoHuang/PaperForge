@@ -2,6 +2,7 @@
 """PaperForge 集成版主入口:master 全部功能接口 + 组员 writing 模块(可选加载)。"""
 
 import io
+import logging
 import threading
 import time
 import uuid
@@ -31,6 +32,8 @@ from .core.template_engine import (
     regenerate_chapter_template,
     suggest_topics,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------- V2 配置(可选加载,失败不影响主功能) ----------
 try:
@@ -66,7 +69,8 @@ try:
 
     app.include_router(writing_router, prefix="/api", tags=["写作模块"])
     writing_enabled = True
-except Exception:
+except Exception as exc:
+    logger.exception("Failed to initialize writing module: %s", exc)
     writing_enabled = False
 
 # 内存中的生成任务(本地演示用,不持久化)

@@ -3,7 +3,7 @@
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
-from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, Boolean
+from sqlalchemy import String, Integer, Text, DateTime, JSON, Boolean, ForeignKey
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from backend.dependencies import Base
@@ -17,7 +17,7 @@ class Design(Base):
     __tablename__ = "designs"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, comment="设定ID")
-    paper_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="所属论文ID")
+    paper_id: Mapped[Optional[str]] = mapped_column(String(32), ForeignKey("papers.id"), nullable=True, comment="所属论文ID")
 
     # 核心设定（JSON 存储）
     modules: Mapped[List[Dict[str, str]]] = mapped_column(
@@ -54,8 +54,14 @@ class Design(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow, comment="更新时间")
 
-    # 关联
-    papers: Mapped[List["Paper"]] = relationship("Paper", back_populates="design", foreign_keys=[Design.paper_id])
+    # 关联 - 一个 Design 对应多个 Paper（一对多）
+    papers: Mapped[List["Paper"]] = relationship(
+        "Paper",
+        back_populates="design",
+        # 使用 remote_side 明确指向 Design.id
+        primaryjoin="Design.id == Paper.design_id",
+        foreign_keys="Paper.design_id",
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""

@@ -7,6 +7,7 @@ venv/
 
 # 本地依赖(体积大,不入库)
 deps/
+tools/plantuml.jar
 
 # 密钥与配置:填写了真实密钥的 .env 严禁提交,仅保留 .env.example 模板
 .env

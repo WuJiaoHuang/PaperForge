@@ -3,7 +3,7 @@
 
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
-from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, Boolean
+from sqlalchemy import String, Integer, Text, DateTime, JSON, Boolean, ForeignKey
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from backend.dependencies import Base
@@ -17,7 +17,7 @@ class Chapter(Base):
     __tablename__ = "chapters"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, comment="章节ID")
-    paper_id: Mapped[str] = mapped_column(String(32), nullable=False, comment="所属论文ID")
+    paper_id: Mapped[str] = mapped_column(String(32), ForeignKey("papers.id"), nullable=False, comment="所属论文ID")
 
     # 章节标识
     key: Mapped[str] = mapped_column(String(20), nullable=False, comment="章节Key: summary/ch1/ch2...")
@@ -42,8 +42,12 @@ class Chapter(Base):
     generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, comment="生成时间")
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow, comment="更新时间")
 
-    # 关联
-    paper: Mapped["Paper"] = relationship("Paper", back_populates="chapters")
+    # 关联 - 多个 Chapter 属于一个 Paper（多对一）
+    paper: Mapped["Paper"] = relationship(
+        "Paper",
+        back_populates="chapters",
+        foreign_keys=[paper_id],
+    )
 
     def __repr__(self):
         return f"<Chapter(id={self.id}, key={self.key}, seq={self.seq}, title={self.title})>"
