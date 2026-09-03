@@ -25,6 +25,14 @@ from .design import (
     DesignAffectedChapters,
     DesignConsistencyCheck,
 )
+from .diagram import (
+    DiagramCreate,
+    DiagramUpdate,
+    DiagramResponse,
+    DiagramDocument,
+    DiagramNode,
+    DiagramEdge,
+)
 from .template import (
     TemplateConfigCreate,
     TemplateConfigUpdate,
@@ -58,6 +66,13 @@ __all__ = [
     "DesignDiffRequest",
     "DesignAffectedChapters",
     "DesignConsistencyCheck",
+    # Diagram
+    "DiagramCreate",
+    "DiagramUpdate",
+    "DiagramResponse",
+    "DiagramDocument",
+    "DiagramNode",
+    "DiagramEdge",
     # Template
     "TemplateConfigCreate",
     "TemplateConfigUpdate",

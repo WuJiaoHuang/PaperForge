@@ -4,11 +4,13 @@
 from .paper import Paper
 from .chapter import Chapter
 from .design import Design
+from .diagram import Diagram
 from .template_config import TemplateConfig
 
 __all__ = [
     "Paper",
     "Chapter",
     "Design",
+    "Diagram",
     "TemplateConfig",
 ]

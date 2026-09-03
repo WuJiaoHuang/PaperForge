@@ -15,6 +15,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- 2. 论文主表
 -- ============================================================
 DROP TABLE IF EXISTS `template_configs`;
+DROP TABLE IF EXISTS `diagrams`;
 DROP TABLE IF EXISTS `chapters`;
 DROP TABLE IF EXISTS `designs`;
 DROP TABLE IF EXISTS `papers`;
@@ -85,7 +86,25 @@ CREATE TABLE `designs` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '系统设定表';
 
 -- ============================================================
--- 5. 模板配置表（可配置化）
+-- 5. 结构化图表表
+-- ============================================================
+CREATE TABLE `diagrams` (
+    `id` VARCHAR(32) NOT NULL COMMENT '图表ID',
+    `paper_id` VARCHAR(32) NOT NULL COMMENT '所属论文ID',
+    `title` VARCHAR(100) NOT NULL COMMENT '图表标题',
+    `type` VARCHAR(50) DEFAULT 'generic' COMMENT '图表类型',
+    `chapter_key` VARCHAR(50) NULL COMMENT '所属章节Key',
+    `data_json` JSON NOT NULL COMMENT '结构化 Diagram JSON',
+    `version` INT DEFAULT 1 COMMENT '版本号',
+    `created_at` DATETIME NULL COMMENT '创建时间',
+    `updated_at` DATETIME NULL COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    INDEX `idx_diagrams_paper_id` (`paper_id`),
+    INDEX `idx_diagrams_chapter_key` (`chapter_key`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '结构化图表表';
+
+-- ============================================================
+-- 6. 模板配置表（可配置化）
 -- ============================================================
 CREATE TABLE `template_configs` (
     `id` VARCHAR(32) NOT NULL COMMENT '配置ID',
@@ -106,6 +125,10 @@ CREATE TABLE `template_configs` (
 
 ALTER TABLE `chapters`
     ADD CONSTRAINT `fk_chapters_paper_id`
+    FOREIGN KEY (`paper_id`) REFERENCES `papers` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `diagrams`
+    ADD CONSTRAINT `fk_diagrams_paper_id`
     FOREIGN KEY (`paper_id`) REFERENCES `papers` (`id`) ON DELETE CASCADE;
 
 ALTER TABLE `designs`

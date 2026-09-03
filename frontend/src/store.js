@@ -48,5 +48,12 @@ export const store = reactive({
   chartExtras: [],
   chartImages: {},
   chartVersion: 0,
+  diagramPaperId: '',
+  diagrams: [],
+  activeDiagram: null,
+  diagramEditorOpen: false,
+  diagramLoading: false,
+  diagramSaving: false,
+  diagramMessage: '',
   history: [],
 })

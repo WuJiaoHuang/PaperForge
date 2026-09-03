@@ -11,6 +11,7 @@ from backend.dependencies import Base
 if TYPE_CHECKING:
     from .chapter import Chapter
     from .design import Design
+    from .diagram import Diagram
 
 
 class Paper(Base):
@@ -65,6 +66,12 @@ class Paper(Base):
         back_populates="paper",
         foreign_keys="Design.paper_id",
         primaryjoin="Paper.id == Design.paper_id",
+        cascade="all, delete-orphan",
+    )
+    diagrams: Mapped[List["Diagram"]] = relationship(
+        "Diagram",
+        back_populates="paper",
+        foreign_keys="Diagram.paper_id",
         cascade="all, delete-orphan",
     )
 
