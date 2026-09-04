@@ -48,7 +48,7 @@ export const store = reactive({
   chartExtras: [],
   chartImages: {},
   chartVersion: 0,
-  diagramPaperId: '',
+  currentPaperId: '',
   diagrams: [],
   activeDiagram: null,
   diagramEditorOpen: false,

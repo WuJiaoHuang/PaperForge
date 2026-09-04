@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -15,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from .core.ai_client import (
     ai_available,
@@ -76,6 +79,8 @@ except Exception as exc:
 # 内存中的生成任务(本地演示用,不持久化)
 JOBS = {}
 JOBS_LOCK = threading.Lock()
+_SYNC_SESSION_LOCAL = None
+_SYNC_SESSION_LOCK = threading.Lock()
 
 
 class GenerateRequest(BaseModel):
@@ -160,6 +165,120 @@ def run_generation(req: GenerateRequest, on_stage=None, on_design=None, on_chapt
     return payload
 
 
+def _get_sync_session_factory():
+    global _SYNC_SESSION_LOCAL
+    if not writing_enabled:
+        raise RuntimeError("写作模块未启用,无法创建论文记录")
+    with _SYNC_SESSION_LOCK:
+        if _SYNC_SESSION_LOCAL is None:
+            engine = create_engine(_settings.DATABASE_URL, pool_pre_ping=True)
+            _SYNC_SESSION_LOCAL = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        return _SYNC_SESSION_LOCAL
+
+
+def _create_generation_paper(req: GenerateRequest, title: str, techs: list[str], requirements: str) -> str:
+    from .writing.models import Paper
+
+    paper_id = uuid.uuid4().hex[:10]
+    SessionLocal = _get_sync_session_factory()
+    with SessionLocal() as db:
+        paper = Paper(
+            id=paper_id,
+            title=title,
+            techs=techs,
+            word_level=req.word_level,
+            style=req.style,
+            requirements=requirements,
+            status="generating",
+            mode="ai" if req.use_ai else "template",
+        )
+        db.add(paper)
+        db.commit()
+    return paper_id
+
+
+def _persist_generation_payload(paper_id: str, payload: dict) -> None:
+    from .writing.models import Chapter, Design, Paper
+
+    SessionLocal = _get_sync_session_factory()
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        paper = db.get(Paper, paper_id)
+        if paper is None:
+            raise RuntimeError("论文记录不存在")
+
+        design_version = 1
+        design = payload.get("system_design") or {}
+        if isinstance(design, dict) and design:
+            design_model = Design(
+                id=uuid.uuid4().hex[:10],
+                paper_id=paper_id,
+                modules=design.get("modules") or [],
+                roles=design.get("roles") or [],
+                tables=design.get("tables") or [],
+                features=design.get("features") or [],
+                domain_note=design.get("domain_note"),
+                version=design_version,
+                is_latest=True,
+                created_at=now,
+            )
+            db.add(design_model)
+            db.flush()
+            paper.design_id = design_model.id
+
+        chapters = payload.get("chapters") or []
+        for chapter in chapters:
+            db.add(
+                Chapter(
+                    id=uuid.uuid4().hex[:10],
+                    paper_id=paper_id,
+                    key=chapter.get("key") or f"ch{chapter.get('seq', 0)}",
+                    seq=chapter.get("seq") or 0,
+                    title=chapter.get("title") or "未命名章节",
+                    hint=chapter.get("hint"),
+                    content_md=chapter.get("content_md") or "",
+                    status="generated",
+                    is_custom=False,
+                    is_enabled=True,
+                    version=1,
+                    design_version=design_version,
+                    generated_at=now,
+                )
+            )
+
+        paper.title = payload.get("title") or paper.title
+        paper.techs = payload.get("techs") or paper.techs
+        paper.word_level = payload.get("level") or paper.word_level
+        paper.style = payload.get("style") or paper.style
+        paper.requirements = payload.get("requirements") or paper.requirements
+        paper.status = "done"
+        paper.mode = payload.get("mode") or paper.mode
+        paper.word_count = payload.get("stats", {}).get("word_count") or sum(
+            len((chapter.get("content_md") or "").replace("\n", "").replace(" ", ""))
+            for chapter in chapters
+        )
+        paper.chapter_count = len(chapters)
+        paper.chart_count = len(payload.get("chart_suggestions") or [])
+        paper.generated_at = now
+        paper.note = payload.get("note")
+        db.commit()
+
+
+def _mark_generation_paper_error(paper_id: str, message: str) -> None:
+    from .writing.models import Paper
+
+    try:
+        SessionLocal = _get_sync_session_factory()
+        with SessionLocal() as db:
+            paper = db.get(Paper, paper_id)
+            if paper is not None:
+                paper.status = "error"
+                paper.note = message[:500]
+                db.commit()
+    except Exception:
+        logger.exception("Failed to mark generation paper as error")
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "ai_available": ai_available(), "writing_module": writing_enabled}
@@ -189,12 +308,21 @@ def generate_start(req: GenerateRequest):
     title = (req.title or "").strip()
     if not title:
         return JSONResponse({"error": "请填写论文题目"}, status_code=400)
+    techs = [t for t in (req.techs or []) if str(t).strip()] or ["SpringBoot", "Vue", "MySQL"]
+    requirements = (req.requirements or "").strip()
+    try:
+        paper_id = _create_generation_paper(req, title, techs, requirements)
+    except Exception as exc:
+        logger.exception("Failed to create generation paper: %s", exc)
+        return JSONResponse({"error": "创建论文记录失败"}, status_code=500)
+
     job_id = uuid.uuid4().hex[:10]
     state = {
         "status": "running",
         "stage": "准备中",
         "current": 0,
         "total": 11,
+        "paper_id": paper_id,
         "design": None,
         "chapters": {},
         "payload": None,
@@ -229,18 +357,22 @@ def generate_start(req: GenerateRequest):
                     }
 
             payload = run_generation(req, on_stage=on_stage, on_design=on_design, on_chapter=on_chapter)
+            payload["id"] = paper_id
+            payload["paper_id"] = paper_id
+            _persist_generation_payload(paper_id, payload)
             with JOBS_LOCK:
                 state["status"] = "done"
                 state["stage"] = "生成完成"
                 state["current"] = state["total"]
                 state["payload"] = payload
         except Exception as exc:  # pragma: no cover
+            _mark_generation_paper_error(paper_id, str(exc))
             with JOBS_LOCK:
                 state["status"] = "error"
                 state["error"] = str(exc)
 
     threading.Thread(target=runner, daemon=True).start()
-    return {"job_id": job_id, "total_stages": 11}
+    return {"job_id": job_id, "paper_id": paper_id, "total_stages": 11}
 
 
 @app.get("/api/generate/status/{job_id}")
@@ -270,6 +402,7 @@ def generate_partial(job_id: str):
             "stage": state["stage"],
             "current": state["current"],
             "total": state["total"],
+            "paper_id": state.get("paper_id"),
             "design": state["design"],
             "chapters": sorted(state["chapters"].values(), key=lambda c: c["seq"]),
             "error": state["error"],

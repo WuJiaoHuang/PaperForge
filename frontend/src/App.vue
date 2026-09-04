@@ -12,7 +12,6 @@ const customTech = ref('')
 const chartTypeSel = ref('er')
 const chartPosSel = ref('第 4 章 系统设计')
 const designShown = ref(false)
-const DIAGRAM_PAPER_KEY = 'paperforge_diagram_paper_id'
 
 const selectedTechs = computed(() => store.techs)
 function isTechOn(t) { return store.techs.includes(t) }
@@ -98,6 +97,8 @@ async function generate() {
   store.view = 'progress'
   store.chartExtras = []
   store.chartImages = {}
+  resetDiagramState()
+  store.currentPaperId = ''
   store.liveDesign = null
   store.liveChapters = []
   store.renderedSeq = []
@@ -110,6 +111,7 @@ async function generate() {
     const res = await api.generateStart(body)
     const start = await res.json()
     if (!res.ok) throw new Error(start.error || '启动生成失败')
+    store.currentPaperId = start.paper_id || ''
     const jobId = start.job_id
     clearInterval(store.pollTimer)
     store.pollTimer = setInterval(() => pollJob(jobId), 800)
@@ -138,14 +140,15 @@ async function pollJob(jobId) {
     }
     if (st.status === 'done') {
       clearInterval(store.pollTimer)
-      const data = await api.generateResult(jobId)
-      store.payload = data
+      const data = normalizePayload(await api.generateResult(jobId))
+      switchCurrentPaper(data)
       saveHistory(data)
       store.stageText = '生成完成'
       store.progressPct = 100
       store.busy = false
       setTimeout(() => {
         store.view = 'result'
+        loadDiagrams()
         window.scrollTo({ top: 0, behavior: 'smooth' })
       }, 350)
     } else if (st.status === 'error') {
@@ -192,6 +195,26 @@ function deleteChartItem(item) {
 }
 function chartChanged() { /* 章节/字数变化由 computed 自动更新 */ }
 
+function resetDiagramState() {
+  store.activeDiagram = null
+  store.diagramEditorOpen = false
+  store.diagrams = []
+  store.diagramMessage = ''
+}
+
+function normalizePayload(payload) {
+  return {
+    ...payload,
+    paper_id: payload.paper_id || '',
+  }
+}
+
+function switchCurrentPaper(payload) {
+  resetDiagramState()
+  store.payload = payload
+  store.currentPaperId = payload.paper_id
+}
+
 function normalizeDiagram(item) {
   const data = item.data_json || item.data || {}
   return {
@@ -208,28 +231,16 @@ function normalizeDiagram(item) {
   }
 }
 
-async function ensureDiagramPaper() {
-  if (store.diagramPaperId) return store.diagramPaperId
-  const res = await api.createPaper({
-    title: (store.payload && store.payload.title) || store.title || '结构化图表论文',
-    techs: (store.payload && store.payload.techs) || store.techs,
-    word_level: store.wordLevel,
-    style: store.style,
-    requirements: (store.payload && store.payload.requirements) || store.requirements || '',
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || data.error || '创建图表归属论文失败')
-  store.diagramPaperId = data.id
-  localStorage.setItem(DIAGRAM_PAPER_KEY, data.id)
-  return data.id
-}
-
 async function loadDiagrams() {
-  if (!store.diagramPaperId) return
+  if (!store.currentPaperId) {
+    resetDiagramState()
+    store.diagramMessage = '请先创建或生成论文'
+    return
+  }
   store.diagramLoading = true
   store.diagramMessage = ''
   try {
-    const data = await api.listDiagrams(store.diagramPaperId)
+    const data = await api.listDiagrams(store.currentPaperId)
     store.diagrams = Array.isArray(data) ? data.map(normalizeDiagram) : []
   } catch (err) {
     store.diagramMessage = '图表加载失败:' + err.message
@@ -240,18 +251,22 @@ async function loadDiagrams() {
 
 async function openDiagramWorkspace() {
   store.view = 'diagrams'
-  if (store.diagramPaperId) await loadDiagrams()
+  await loadDiagrams()
 }
 
 async function createDiagram(kind = 'blank') {
+  if (!store.currentPaperId) {
+    resetDiagramState()
+    store.diagramMessage = '请先创建或生成论文'
+    return
+  }
   store.diagramLoading = true
   store.diagramMessage = ''
   try {
-    const paperId = await ensureDiagramPaper()
     const base = kind === 'sample'
       ? createSampleArchitecture('示例架构图')
       : createEmptyDiagram({ title: '未命名图表', type: 'generic', chapterKey: 'ch4' })
-    const res = await api.createDiagram(paperId, {
+    const res = await api.createDiagram(store.currentPaperId, {
       title: base.title,
       type: base.type,
       chapter_key: base.chapterKey,
@@ -270,11 +285,11 @@ async function createDiagram(kind = 'blank') {
 }
 
 async function openDiagram(item) {
+  if (!store.currentPaperId || !item) return
   store.diagramLoading = true
   store.diagramMessage = ''
   try {
-    const data = await api.getDiagram(store.diagramPaperId, item.id)
-    if (data.detail || data.error) throw new Error(data.detail || data.error)
+    const data = await api.getDiagram(store.currentPaperId, item.id)
     store.activeDiagram = normalizeDiagram(data)
     store.diagramEditorOpen = true
   } catch (err) {
@@ -285,11 +300,11 @@ async function openDiagram(item) {
 }
 
 async function saveDiagram(document) {
-  if (!store.diagramPaperId || !store.activeDiagram) return
+  if (!store.currentPaperId || !store.activeDiagram) return
   store.diagramSaving = true
   store.diagramMessage = ''
   try {
-    const res = await api.saveDiagram(store.diagramPaperId, store.activeDiagram.id, {
+    const res = await api.saveDiagram(store.currentPaperId, store.activeDiagram.id, {
       title: document.title,
       type: document.type,
       chapter_key: document.chapterKey,
@@ -308,11 +323,11 @@ async function saveDiagram(document) {
 }
 
 async function deleteDiagram(item) {
-  if (!store.diagramPaperId || !item) return
+  if (!store.currentPaperId || !item) return
   if (!confirm('确认删除该结构化图表?')) return
   store.diagramLoading = true
   try {
-    await api.deleteDiagram(store.diagramPaperId, item.id)
+    await api.deleteDiagram(store.currentPaperId, item.id)
     if (store.activeDiagram && store.activeDiagram.id === item.id) {
       store.activeDiagram = null
       store.diagramEditorOpen = false
@@ -350,9 +365,11 @@ async function copyAll() {
   catch { alert('复制失败,请手动复制') }
 }
 
-function openHistory(item) {
-  store.payload = item.payload
+async function openHistory(item) {
+  const payload = normalizePayload(item.payload)
+  switchCurrentPaper(payload)
   store.view = 'result'
+  if (store.currentPaperId) await loadDiagrams()
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -382,8 +399,6 @@ function onResize() { syncTopbar() }
 
 onMounted(() => {
   store.history = loadHistory()
-  store.diagramPaperId = localStorage.getItem(DIAGRAM_PAPER_KEY) || ''
-  if (store.diagramPaperId) loadDiagrams()
   checkAi()
   loadChartTypes()
   syncTopbar()
@@ -579,9 +594,9 @@ onUnmounted(() => {
               <div class="chart-panel-head">
                 <h3>图表列表</h3>
                 <div class="chart-add">
-                  <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
-                  <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
-                  <button class="btn-mini" type="button" :disabled="!store.diagramPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
+                  <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
+                  <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
+                  <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
                 </div>
               </div>
               <div v-if="store.diagrams.length" class="diagram-list">
@@ -674,9 +689,9 @@ onUnmounted(() => {
               <div class="chart-panel-head">
                 <h3>结构化图表</h3>
                 <div class="chart-add">
-                  <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
-                  <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
-                  <button class="btn-mini" type="button" :disabled="!store.diagramPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
+                  <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
+                  <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
+                  <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
                 </div>
               </div>
               <div v-if="store.diagrams.length" class="diagram-list">
