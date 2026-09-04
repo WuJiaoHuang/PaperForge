@@ -11,6 +11,7 @@ import {
   toVueFlowEdges,
   toVueFlowNodes,
 } from '../../utils/diagramAdapter'
+import { layoutDiagram } from '../../utils/diagramLayout'
 
 const props = defineProps({
   diagram: { type: Object, required: true },
@@ -22,6 +23,7 @@ const nodes = ref([])
 const edges = ref([])
 const selectedId = ref('')
 const selectedKind = ref('')
+const layouting = ref(false)
 const { getViewport, setViewport } = useVueFlow()
 
 const selectedNode = computed(() => selectedKind.value === 'node' ? nodes.value.find((node) => node.id === selectedId.value) : null)
@@ -120,6 +122,18 @@ function deleteSelection() {
   clearSelection()
 }
 
+async function autoLayout() {
+  layouting.value = true
+  try {
+    const nextNodes = await layoutDiagram(fromVueFlowNodes(nodes.value), fromVueFlowEdges(edges.value), { type: props.diagram.type })
+    nodes.value = toVueFlowNodes(nextNodes)
+    setViewport({ x: 40, y: 40, zoom: 1 })
+    clearSelection()
+  } finally {
+    layouting.value = false
+  }
+}
+
 function save() {
   emit('save', sanitizeDiagramForSave(props.diagram, nodes.value, edges.value, getViewport()))
 }
@@ -144,6 +158,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </div>
       <div class="diagram-head-actions">
         <button class="btn btn-outline" type="button" @click="$emit('close')">返回</button>
+        <button class="btn btn-outline" type="button" :disabled="layouting" data-testid="auto-layout" @click="autoLayout">
+          {{ layouting ? '布局中' : '自动布局' }}
+        </button>
         <button class="btn btn-primary" type="button" :disabled="saving" data-testid="save-diagram" @click="save">
           {{ saving ? '保存中' : '保存' }}
         </button>

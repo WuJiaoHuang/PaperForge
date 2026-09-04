@@ -7,11 +7,20 @@ import ChapterCard from './components/ChapterCard.vue'
 import ChartItem from './components/ChartItem.vue'
 import DiagramEditor from './components/diagram/DiagramEditor.vue'
 import { createEmptyDiagram, createSampleArchitecture } from './utils/diagramAdapter'
+import { layoutDiagramDocument } from './utils/diagramLayout'
 
 const customTech = ref('')
 const chartTypeSel = ref('er')
 const chartPosSel = ref('第 4 章 系统设计')
+const autoDiagramType = ref('architecture')
 const designShown = ref(false)
+
+const AUTO_DIAGRAM_TYPES = [
+  { type: 'architecture', title: '系统架构图', chapterKey: 'ch4' },
+  { type: 'module', title: '功能模块图', chapterKey: 'ch4' },
+  { type: 'flow', title: '业务流程图', chapterKey: 'ch5' },
+  { type: 'er', title: 'E-R 图', chapterKey: 'ch4' },
+]
 
 const selectedTechs = computed(() => store.techs)
 function isTechOn(t) { return store.techs.includes(t) }
@@ -279,6 +288,45 @@ async function createDiagram(kind = 'blank') {
     await loadDiagrams()
   } catch (err) {
     store.diagramMessage = err.message
+  } finally {
+    store.diagramLoading = false
+  }
+}
+
+async function persistDiagramDocument(document) {
+  const res = await api.saveDiagram(store.currentPaperId, document.id, {
+    title: document.title,
+    type: document.type,
+    chapter_key: document.chapterKey,
+    data: document,
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || data.error || '保存图表失败')
+  return normalizeDiagram(data)
+}
+
+async function generateAutoDiagram() {
+  if (!store.currentPaperId) {
+    resetDiagramState()
+    store.diagramMessage = '请先创建或生成论文'
+    return
+  }
+  const config = AUTO_DIAGRAM_TYPES.find((item) => item.type === autoDiagramType.value) || AUTO_DIAGRAM_TYPES[0]
+  store.diagramLoading = true
+  store.diagramMessage = ''
+  try {
+    const created = normalizeDiagram(await api.generateDiagram(store.currentPaperId, {
+      type: config.type,
+      title: config.title,
+      chapter_key: config.chapterKey,
+    }))
+    const layouted = await layoutDiagramDocument(created)
+    store.activeDiagram = await persistDiagramDocument(layouted)
+    store.diagramEditorOpen = true
+    await loadDiagrams()
+    store.diagramMessage = '图表已自动生成并完成布局'
+  } catch (err) {
+    store.diagramMessage = '自动生成失败:' + err.message
   } finally {
     store.diagramLoading = false
   }
@@ -594,6 +642,10 @@ onUnmounted(() => {
               <div class="chart-panel-head">
                 <h3>图表列表</h3>
                 <div class="chart-add">
+                  <select v-model="autoDiagramType" data-testid="auto-diagram-type" :disabled="!store.currentPaperId || store.diagramLoading">
+                    <option v-for="item in AUTO_DIAGRAM_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
+                  </select>
+                  <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram">自动生成</button>
                   <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
                   <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
                   <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
@@ -689,6 +741,10 @@ onUnmounted(() => {
               <div class="chart-panel-head">
                 <h3>结构化图表</h3>
                 <div class="chart-add">
+                  <select v-model="autoDiagramType" data-testid="auto-diagram-type" :disabled="!store.currentPaperId || store.diagramLoading">
+                    <option v-for="item in AUTO_DIAGRAM_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
+                  </select>
+                  <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram">自动生成</button>
                   <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
                   <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
                   <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>

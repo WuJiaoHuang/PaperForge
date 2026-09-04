@@ -28,6 +28,7 @@ from .design import (
 from .diagram import (
     DiagramCreate,
     DiagramUpdate,
+    DiagramGenerate,
     DiagramResponse,
     DiagramDocument,
     DiagramNode,
@@ -69,6 +70,7 @@ __all__ = [
     # Diagram
     "DiagramCreate",
     "DiagramUpdate",
+    "DiagramGenerate",
     "DiagramResponse",
     "DiagramDocument",
     "DiagramNode",

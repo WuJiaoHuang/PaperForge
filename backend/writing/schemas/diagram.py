@@ -114,6 +114,14 @@ class DiagramUpdate(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
+class DiagramGenerate(BaseModel):
+    """自动生成图表请求"""
+
+    type: Literal["architecture", "module", "flow", "er"]
+    title: str = Field(..., min_length=1, max_length=100)
+    chapter_key: Optional[str] = Field(None, max_length=50)
+
+
 class DiagramResponse(BaseModel):
     """图表响应"""
 

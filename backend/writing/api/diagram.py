@@ -7,16 +7,31 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.dependencies import get_db
 from ..models import Diagram, Paper
-from ..schemas import DiagramCreate, DiagramDocument, DiagramResponse, DiagramUpdate
+from ..schemas import DiagramCreate, DiagramDocument, DiagramGenerate, DiagramResponse, DiagramUpdate
+from ..services.diagram_generator import generate_diagram_document
 
 router = APIRouter(prefix="/papers/{paper_id}/diagrams", tags=["结构化图表"])
 
 
 async def _get_paper(db: AsyncSession, paper_id: str) -> Optional[Paper]:
     result = await db.execute(select(Paper).where(Paper.id == paper_id))
+    return result.scalar_one_or_none()
+
+
+async def _get_paper_context(db: AsyncSession, paper_id: str) -> Optional[Paper]:
+    result = await db.execute(
+        select(Paper)
+        .where(Paper.id == paper_id)
+        .options(
+            selectinload(Paper.design),
+            selectinload(Paper.design_versions),
+            selectinload(Paper.chapters),
+        )
+    )
     return result.scalar_one_or_none()
 
 
@@ -97,6 +112,46 @@ async def create_diagram(
         chapter_key=data.chapter_key,
         data_json=document,
         version=version,
+    )
+    db.add(diagram)
+    await db.commit()
+    await db.refresh(diagram)
+    return _to_response(diagram)
+
+
+@router.post("/generate", response_model=DiagramResponse)
+async def generate_diagram(
+    paper_id: str,
+    data: DiagramGenerate,
+    db: AsyncSession = Depends(get_db),
+):
+    """根据当前论文持久化内容自动生成结构化图表"""
+    paper = await _get_paper_context(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+
+    diagram_id = "diagram_" + uuid.uuid4().hex[:10]
+    design = paper.design
+    if design is None and paper.design_versions:
+        design = sorted(paper.design_versions, key=lambda item: item.version, reverse=True)[0]
+    document = generate_diagram_document(
+        diagram_id,
+        data.title,
+        data.type,
+        data.chapter_key,
+        paper,
+        design,
+        paper.chapters,
+    )
+    document = _build_document(diagram_id, data.title, data.type, data.chapter_key, 1, document)
+    diagram = Diagram(
+        id=diagram_id,
+        paper_id=paper_id,
+        title=data.title,
+        type=data.type,
+        chapter_key=data.chapter_key,
+        data_json=document,
+        version=1,
     )
     db.add(diagram)
     await db.commit()

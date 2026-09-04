@@ -35,6 +35,7 @@ export const api = {
   chartGenerate: (body) => post('/api/charts/generate', body),
   exportFile: (path, payload) => post(path, { payload }),
   createDiagram: (paperId, body) => post('/api/writing/papers/' + paperId + '/diagrams', body),
+  generateDiagram: (paperId, body) => post('/api/writing/papers/' + paperId + '/diagrams/generate', body).then((r) => checkedJson(r, '自动生成图表失败')),
   listDiagrams: (paperId) => fetch('/api/writing/papers/' + paperId + '/diagrams').then((r) => checkedJson(r, '加载图表失败')),
   getDiagram: (paperId, diagramId) => fetch('/api/writing/papers/' + paperId + '/diagrams/' + diagramId).then((r) => checkedJson(r, '打开图表失败')),
   saveDiagram: (paperId, diagramId, body) => put('/api/writing/papers/' + paperId + '/diagrams/' + diagramId, body),
