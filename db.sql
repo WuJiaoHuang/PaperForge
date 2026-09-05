@@ -92,15 +92,20 @@ CREATE TABLE `diagrams` (
     `id` VARCHAR(32) NOT NULL COMMENT '图表ID',
     `paper_id` VARCHAR(32) NOT NULL COMMENT '所属论文ID',
     `title` VARCHAR(100) NOT NULL COMMENT '图表标题',
+    `caption` VARCHAR(120) NULL COMMENT '图表题注(不含图号)',
     `type` VARCHAR(50) DEFAULT 'generic' COMMENT '图表类型',
     `chapter_key` VARCHAR(50) NULL COMMENT '所属章节Key',
+    `section_key` VARCHAR(80) NULL COMMENT '所属小节Key',
+    `sort_order` INT DEFAULT 0 COMMENT '同一位置排序',
+    `is_enabled` TINYINT(1) DEFAULT 1 COMMENT '是否纳入论文',
     `data_json` JSON NOT NULL COMMENT '结构化 Diagram JSON',
     `version` INT DEFAULT 1 COMMENT '版本号',
     `created_at` DATETIME NULL COMMENT '创建时间',
     `updated_at` DATETIME NULL COMMENT '更新时间',
     PRIMARY KEY (`id`),
     INDEX `idx_diagrams_paper_id` (`paper_id`),
-    INDEX `idx_diagrams_chapter_key` (`chapter_key`)
+    INDEX `idx_diagrams_chapter_key` (`chapter_key`),
+    INDEX `idx_diagrams_position` (`chapter_key`, `section_key`, `sort_order`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '结构化图表表';
 
 -- ============================================================

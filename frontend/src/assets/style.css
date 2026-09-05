@@ -742,6 +742,84 @@ body {
   color: var(--muted);
 }
 
+.figure-create {
+  display: grid;
+  grid-template-columns: 150px minmax(160px, 1fr) 190px minmax(120px, 1fr) 78px auto auto;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0 14px;
+}
+.figure-create .order-input,
+.figure-placement .order-input {
+  min-width: 64px;
+}
+.figure-list-item {
+  align-items: flex-start;
+}
+.figure-main {
+  min-width: 0;
+  flex: 1;
+}
+.figure-main b {
+  display: block;
+  font-family: "SimSun", "Microsoft YaHei", serif;
+  color: #111827;
+  margin-bottom: 4px;
+}
+.figure-main span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.figure-placement {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.2fr) minmax(140px, 1fr) 76px auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.structured-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(360px, 1.6fr);
+  gap: 12px;
+}
+.structured-editor-grid.usecase-grid {
+  grid-template-columns: minmax(180px, 0.7fr) minmax(220px, 1fr) minmax(280px, 1.2fr);
+}
+.structured-panel {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 12px;
+}
+.structured-list {
+  display: grid;
+  gap: 8px;
+}
+.structured-row,
+.message-row,
+.relation-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+}
+.structured-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.message-row {
+  grid-template-columns: 120px 120px minmax(160px, 1fr) auto auto auto;
+}
+.relation-row {
+  grid-template-columns: minmax(120px, 1fr) minmax(140px, 1fr) auto;
+}
+
 /* ---------- 页脚 ---------- */
 .site-footer {
   background: var(--blue-deep);
@@ -762,6 +840,14 @@ body {
   .toc { position: static; max-height: none; }
   .diagram-shell { grid-template-columns: 120px 1fr; }
   .diagram-properties { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); }
+  .figure-create,
+  .figure-placement,
+  .structured-editor-grid,
+  .structured-editor-grid.usecase-grid,
+  .message-row,
+  .relation-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {

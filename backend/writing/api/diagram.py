@@ -45,19 +45,29 @@ async def _get_diagram(db: AsyncSession, paper_id: str, diagram_id: str) -> Opti
 def _build_document(
     diagram_id: str,
     title: str,
+    caption: Optional[str],
     diagram_type: str,
     chapter_key: Optional[str],
+    section_key: Optional[str],
+    sort_order: int,
+    is_enabled: bool,
     version: int,
     data: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     payload = dict(data or {})
     payload["id"] = diagram_id
     payload["title"] = title
+    payload["caption"] = caption or title
     payload["type"] = diagram_type
     payload["chapterKey"] = chapter_key
+    payload["sectionKey"] = section_key
+    payload["sortOrder"] = sort_order
+    payload["isEnabled"] = is_enabled
     payload["version"] = version
     payload.setdefault("nodes", [])
     payload.setdefault("edges", [])
+    payload.setdefault("sequence", None)
+    payload.setdefault("usecase", None)
     payload.setdefault("viewport", {})
     payload.setdefault("metadata", {})
     try:
@@ -73,8 +83,12 @@ def _to_response(diagram: Diagram) -> DiagramResponse:
             "id": diagram.id,
             "paper_id": diagram.paper_id,
             "title": diagram.title,
+            "caption": diagram.caption,
             "type": diagram.type,
             "chapter_key": diagram.chapter_key,
+            "section_key": diagram.section_key,
+            "sort_order": diagram.sort_order,
+            "is_enabled": diagram.is_enabled,
             "data_json": DiagramDocument.model_validate(diagram.data_json),
             "version": diagram.version,
             "created_at": diagram.created_at,
@@ -99,8 +113,12 @@ async def create_diagram(
     document = _build_document(
         diagram_id,
         data.title,
+        data.caption,
         data.type,
         data.chapter_key,
+        data.section_key,
+        data.sort_order,
+        data.is_enabled,
         version,
         data.data,
     )
@@ -108,8 +126,12 @@ async def create_diagram(
         id=diagram_id,
         paper_id=paper_id,
         title=data.title,
+        caption=data.caption or data.title,
         type=data.type,
         chapter_key=data.chapter_key,
+        section_key=data.section_key,
+        sort_order=data.sort_order,
+        is_enabled=data.is_enabled,
         data_json=document,
         version=version,
     )
@@ -143,13 +165,28 @@ async def generate_diagram(
         design,
         paper.chapters,
     )
-    document = _build_document(diagram_id, data.title, data.type, data.chapter_key, 1, document)
+    document = _build_document(
+        diagram_id,
+        data.title,
+        data.caption,
+        data.type,
+        data.chapter_key,
+        data.section_key,
+        data.sort_order,
+        data.is_enabled,
+        1,
+        document,
+    )
     diagram = Diagram(
         id=diagram_id,
         paper_id=paper_id,
         title=data.title,
+        caption=data.caption or data.title,
         type=data.type,
         chapter_key=data.chapter_key,
+        section_key=data.section_key,
+        sort_order=data.sort_order,
+        is_enabled=data.is_enabled,
         data_json=document,
         version=1,
     )
@@ -170,7 +207,9 @@ async def list_diagrams(
         raise HTTPException(status_code=404, detail="论文不存在")
 
     result = await db.execute(
-        select(Diagram).where(Diagram.paper_id == paper_id).order_by(Diagram.created_at.desc())
+        select(Diagram)
+        .where(Diagram.paper_id == paper_id)
+        .order_by(Diagram.chapter_key.asc(), Diagram.sort_order.asc(), Diagram.created_at.desc())
     )
     return [_to_response(item) for item in result.scalars().all()]
 
@@ -201,21 +240,33 @@ async def update_diagram(
         raise HTTPException(status_code=404, detail="图表不存在")
 
     next_title = data.title or diagram.title
+    next_caption = data.caption if data.caption is not None else diagram.caption
     next_type = data.type or diagram.type
     next_chapter_key = data.chapter_key if data.chapter_key is not None else diagram.chapter_key
+    next_section_key = data.section_key if data.section_key is not None else diagram.section_key
+    next_sort_order = data.sort_order if data.sort_order is not None else diagram.sort_order
+    next_is_enabled = data.is_enabled if data.is_enabled is not None else diagram.is_enabled
     next_version = diagram.version + 1
     document = _build_document(
         diagram.id,
         next_title,
+        next_caption,
         next_type,
         next_chapter_key,
+        next_section_key,
+        next_sort_order,
+        next_is_enabled,
         next_version,
         data.data if data.data is not None else diagram.data_json,
     )
 
     diagram.title = next_title
+    diagram.caption = next_caption or next_title
     diagram.type = next_type
     diagram.chapter_key = next_chapter_key
+    diagram.section_key = next_section_key
+    diagram.sort_order = next_sort_order
+    diagram.is_enabled = next_is_enabled
     diagram.version = next_version
     diagram.data_json = document
     await db.commit()

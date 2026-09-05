@@ -55,5 +55,6 @@ export const store = reactive({
   diagramLoading: false,
   diagramSaving: false,
   diagramMessage: '',
+  ignoredSuggestionKeys: [],
   history: [],
 })

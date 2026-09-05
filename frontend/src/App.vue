@@ -1,25 +1,28 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from './api'
-import { CHART_POSITIONS, DEFAULT_TECHS, STAGE_NAMES, TECH_PRESETS, store } from './store'
-import { downloadBlob, loadHistory, mdToHtml, saveHistory } from './utils'
+import { DEFAULT_TECHS, STAGE_NAMES, TECH_PRESETS, store } from './store'
+import { downloadBlob, loadHistory, saveHistory } from './utils'
 import ChapterCard from './components/ChapterCard.vue'
-import ChartItem from './components/ChartItem.vue'
-import DiagramEditor from './components/diagram/DiagramEditor.vue'
+import DiagramEditorRouter from './components/diagram/DiagramEditorRouter.vue'
 import { createEmptyDiagram, createSampleArchitecture } from './utils/diagramAdapter'
 import { layoutDiagramDocument } from './utils/diagramLayout'
 
 const customTech = ref('')
-const chartTypeSel = ref('er')
-const chartPosSel = ref('第 4 章 系统设计')
-const autoDiagramType = ref('architecture')
+const newFigureType = ref('architecture')
+const newFigureTitle = ref('系统架构图')
+const newFigureChapterKey = ref('ch4')
+const newFigureSectionKey = ref('design_architecture')
+const newFigureSortOrder = ref(0)
 const designShown = ref(false)
 
-const AUTO_DIAGRAM_TYPES = [
-  { type: 'architecture', title: '系统架构图', chapterKey: 'ch4' },
-  { type: 'module', title: '功能模块图', chapterKey: 'ch4' },
-  { type: 'flow', title: '业务流程图', chapterKey: 'ch5' },
-  { type: 'er', title: 'E-R 图', chapterKey: 'ch4' },
+const FIGURE_TYPES = [
+  { type: 'architecture', title: '系统架构图', chapterKey: 'ch4', sectionKey: 'design_architecture' },
+  { type: 'module', title: '功能模块图', chapterKey: 'ch4', sectionKey: 'design_modules' },
+  { type: 'flow', title: '业务流程图', chapterKey: 'ch5', sectionKey: 'implementation_flow' },
+  { type: 'er', title: 'E-R 图', chapterKey: 'ch4', sectionKey: 'database_design' },
+  { type: 'usecase', title: '系统用例图', chapterKey: 'ch3', sectionKey: 'requirements_usecase' },
+  { type: 'sequence', title: '业务时序图', chapterKey: 'ch5', sectionKey: 'implementation_sequence' },
 ]
 
 const selectedTechs = computed(() => store.techs)
@@ -187,20 +190,93 @@ const paperMeta = computed(() => {
   return mode + ' · 约 ' + wordCount.value + ' 字 · ' + (store.payload.generated_at || '')
 })
 const designModules = computed(() => (store.liveDesign || (store.payload && store.payload.system_design) || {}))
-const chartList = computed(() => {
-  store.chartVersion // 触发响应
-  const base = store.payload ? store.payload.chart_suggestions || [] : []
-  return base.concat(store.chartExtras)
+const chapterOptions = computed(() => resultChapters.value.map((chapter) => ({
+  key: chapter.key,
+  title: chapter.title,
+  seq: chapter.seq,
+})))
+const figureSuggestions = computed(() => {
+  const suggested = store.payload ? store.payload.chart_suggestions || [] : []
+  const mapped = suggested
+    .map((item, index) => normalizeSuggestion(item, index))
+    .filter((item) => FIGURE_TYPES.some((type) => type.type === item.type))
+    .filter((item) => !store.ignoredSuggestionKeys.includes(item.key))
+  const missing = FIGURE_TYPES
+    .filter((type) => !mapped.some((item) => item.type === type.type))
+    .filter((type) => !store.ignoredSuggestionKeys.includes('default_' + type.type))
+    .map((type) => ({
+      key: 'default_' + type.type,
+      type: type.type,
+      title: type.title,
+      caption: type.title,
+      chapterKey: type.chapterKey,
+      sectionKey: type.sectionKey,
+      sortOrder: 0,
+    }))
+  return mapped.concat(missing)
 })
+const figureRows = computed(() => {
+  const generatedKeys = new Set(store.diagrams.map((item) => item.type + '|' + (item.chapterKey || '')))
+  const suggestions = figureSuggestions.value
+    .filter((item) => !generatedKeys.has(item.type + '|' + (item.chapterKey || '')))
+    .map((item) => ({ kind: 'suggestion', key: item.key, suggestion: item }))
+  const diagrams = sortedDiagrams.value.map((diagram) => ({ kind: 'diagram', key: diagram.id, diagram }))
+  return diagrams.concat(suggestions)
+})
+const sortedDiagrams = computed(() => [...store.diagrams].sort(compareDiagrams))
 
-function addChartItem() {
-  const t = store.chartTypes.find((x) => x.type === chartTypeSel.value) || store.chartTypes[0]
-  store.chartExtras.push({ fig: '新增', title: t.label, type: t.type, position: chartPosSel.value, material: t.hint })
-  store.chartVersion += 1
+function normalizeSuggestion(item, index) {
+  const typeInfo = FIGURE_TYPES.find((type) => type.type === item.type) || FIGURE_TYPES[index % FIGURE_TYPES.length]
+  return {
+    key: (item.type || typeInfo.type) + '_' + index,
+    type: item.type || typeInfo.type,
+    title: item.title || typeInfo.title,
+    caption: item.title || typeInfo.title,
+    chapterKey: chapterKeyFromPosition(item.position) || typeInfo.chapterKey,
+    sectionKey: typeInfo.sectionKey,
+    sortOrder: index,
+  }
 }
-function deleteChartItem(item) {
-  store.chartExtras = store.chartExtras.filter((x) => x !== item)
-  store.chartVersion += 1
+
+function chapterKeyFromPosition(position) {
+  const text = String(position || '')
+  if (text.includes('第 3 章') || text.includes('需求')) return 'ch3'
+  if (text.includes('第 4 章') || text.includes('设计')) return 'ch4'
+  if (text.includes('第 5 章') || text.includes('实现')) return 'ch5'
+  if (text.includes('第 6 章') || text.includes('测试')) return 'ch6'
+  return ''
+}
+
+function figureTypeLabel(type) {
+  return FIGURE_TYPES.find((item) => item.type === type)?.title || type
+}
+
+function syncNewFigureDefaults() {
+  const info = FIGURE_TYPES.find((item) => item.type === newFigureType.value) || FIGURE_TYPES[0]
+  newFigureTitle.value = info.title
+  newFigureChapterKey.value = info.chapterKey
+  newFigureSectionKey.value = info.sectionKey
+}
+
+function figureNumber(diagram) {
+  const chapter = chapterOptions.value.find((item) => item.key === diagram.chapterKey)
+  if (!chapter) return '图'
+  const enabled = sortedDiagrams.value.filter((item) => item.isEnabled !== false && item.chapterKey === diagram.chapterKey)
+  const index = enabled.findIndex((item) => item.id === diagram.id)
+  return index >= 0 ? `图${chapter.seq}-${index + 1}` : `图${chapter.seq}`
+}
+
+function placementLabel(diagram) {
+  const chapter = chapterOptions.value.find((item) => item.key === diagram.chapterKey)
+  return (chapter?.title || diagram.chapterKey || '未设置章节') + (diagram.sectionKey ? ' / ' + diagram.sectionKey : '')
+}
+
+function compareDiagrams(a, b) {
+  const chapterA = chapterOptions.value.find((item) => item.key === a.chapterKey)?.seq || 99
+  const chapterB = chapterOptions.value.find((item) => item.key === b.chapterKey)?.seq || 99
+  if (chapterA !== chapterB) return chapterA - chapterB
+  if ((a.sortOrder || 0) !== (b.sortOrder || 0)) return (a.sortOrder || 0) - (b.sortOrder || 0)
+  return String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
 }
 function chartChanged() { /* 章节/字数变化由 computed 自动更新 */ }
 
@@ -209,6 +285,7 @@ function resetDiagramState() {
   store.diagramEditorOpen = false
   store.diagrams = []
   store.diagramMessage = ''
+  store.ignoredSuggestionKeys = []
 }
 
 function normalizePayload(payload) {
@@ -230,13 +307,20 @@ function normalizeDiagram(item) {
     ...data,
     id: item.id || data.id,
     title: item.title || data.title || '未命名图表',
+    caption: item.caption || data.caption || item.title || data.title || '未命名图表',
     type: item.type || data.type || 'generic',
     chapterKey: item.chapter_key || data.chapterKey || data.chapter_key || 'ch4',
+    sectionKey: item.section_key || data.sectionKey || data.section_key || '',
+    sortOrder: Number(item.sort_order ?? data.sortOrder ?? data.sort_order ?? 0),
+    isEnabled: item.is_enabled ?? data.isEnabled ?? data.is_enabled ?? true,
     version: item.version || data.version || 1,
     nodes: data.nodes || [],
     edges: data.edges || [],
+    sequence: data.sequence || null,
+    usecase: data.usecase || null,
     viewport: data.viewport || {},
     metadata: data.metadata || {},
+    createdAt: item.created_at || data.createdAt || '',
   }
 }
 
@@ -274,11 +358,21 @@ async function createDiagram(kind = 'blank') {
   try {
     const base = kind === 'sample'
       ? createSampleArchitecture('示例架构图')
-      : createEmptyDiagram({ title: '未命名图表', type: 'generic', chapterKey: 'ch4' })
+      : createEmptyDiagram({
+        title: newFigureTitle.value.trim() || figureTypeLabel(newFigureType.value),
+        type: newFigureType.value,
+        chapterKey: newFigureChapterKey.value,
+        sectionKey: newFigureSectionKey.value,
+        sortOrder: Number(newFigureSortOrder.value) || 0,
+      })
     const res = await api.createDiagram(store.currentPaperId, {
       title: base.title,
+      caption: base.caption || base.title,
       type: base.type,
       chapter_key: base.chapterKey,
+      section_key: base.sectionKey,
+      sort_order: base.sortOrder,
+      is_enabled: base.isEnabled,
       data: base,
     })
     const data = await res.json()
@@ -296,8 +390,12 @@ async function createDiagram(kind = 'blank') {
 async function persistDiagramDocument(document) {
   const res = await api.saveDiagram(store.currentPaperId, document.id, {
     title: document.title,
+    caption: document.caption || document.title,
     type: document.type,
     chapter_key: document.chapterKey,
+    section_key: document.sectionKey,
+    sort_order: Number(document.sortOrder) || 0,
+    is_enabled: document.isEnabled !== false,
     data: document,
   })
   const data = await res.json()
@@ -305,20 +403,31 @@ async function persistDiagramDocument(document) {
   return normalizeDiagram(data)
 }
 
-async function generateAutoDiagram() {
+async function generateAutoDiagram(source = null) {
   if (!store.currentPaperId) {
     resetDiagramState()
     store.diagramMessage = '请先创建或生成论文'
     return
   }
-  const config = AUTO_DIAGRAM_TYPES.find((item) => item.type === autoDiagramType.value) || AUTO_DIAGRAM_TYPES[0]
+  const config = source || {
+    type: newFigureType.value,
+    title: newFigureTitle.value.trim() || figureTypeLabel(newFigureType.value),
+    caption: newFigureTitle.value.trim() || figureTypeLabel(newFigureType.value),
+    chapterKey: newFigureChapterKey.value,
+    sectionKey: newFigureSectionKey.value,
+    sortOrder: Number(newFigureSortOrder.value) || 0,
+  }
   store.diagramLoading = true
   store.diagramMessage = ''
   try {
     const created = normalizeDiagram(await api.generateDiagram(store.currentPaperId, {
       type: config.type,
       title: config.title,
+      caption: config.caption || config.title,
       chapter_key: config.chapterKey,
+      section_key: config.sectionKey,
+      sort_order: Number(config.sortOrder) || 0,
+      is_enabled: true,
     }))
     const layouted = await layoutDiagramDocument(created)
     store.activeDiagram = await persistDiagramDocument(layouted)
@@ -330,6 +439,28 @@ async function generateAutoDiagram() {
   } finally {
     store.diagramLoading = false
   }
+}
+
+async function generateFromSuggestion(suggestion) {
+  await generateAutoDiagram(suggestion)
+}
+
+function ignoreSuggestion(suggestion) {
+  if (!store.ignoredSuggestionKeys.includes(suggestion.key)) {
+    store.ignoredSuggestionKeys.push(suggestion.key)
+  }
+}
+
+async function regenerateDiagram(diagram) {
+  if (!confirm('重新生成会创建一张新的图表,当前编辑成果会保留。是否继续?')) return
+  await generateAutoDiagram({
+    type: diagram.type,
+    title: diagram.caption || diagram.title,
+    caption: diagram.caption || diagram.title,
+    chapterKey: diagram.chapterKey,
+    sectionKey: diagram.sectionKey,
+    sortOrder: (Number(diagram.sortOrder) || 0) + 1,
+  })
 }
 
 async function openDiagram(item) {
@@ -354,8 +485,12 @@ async function saveDiagram(document) {
   try {
     const res = await api.saveDiagram(store.currentPaperId, store.activeDiagram.id, {
       title: document.title,
+      caption: document.caption || document.title,
       type: document.type,
       chapter_key: document.chapterKey,
+      section_key: document.sectionKey,
+      sort_order: Number(document.sortOrder) || 0,
+      is_enabled: document.isEnabled !== false,
       data: document,
     })
     const data = await res.json()
@@ -370,9 +505,31 @@ async function saveDiagram(document) {
   }
 }
 
+async function updateDiagramPlacement(diagram) {
+  if (!store.currentPaperId || !diagram) return
+  store.diagramSaving = true
+  store.diagramMessage = ''
+  try {
+    const saved = await persistDiagramDocument({
+      ...diagram,
+      chapterKey: diagram.chapterKey,
+      sectionKey: diagram.sectionKey,
+      sortOrder: Number(diagram.sortOrder) || 0,
+      isEnabled: diagram.isEnabled !== false,
+    })
+    const index = store.diagrams.findIndex((item) => item.id === saved.id)
+    if (index >= 0) store.diagrams[index] = saved
+    store.diagramMessage = '图表位置已保存'
+  } catch (err) {
+    store.diagramMessage = '位置保存失败:' + err.message
+  } finally {
+    store.diagramSaving = false
+  }
+}
+
 async function deleteDiagram(item) {
   if (!store.currentPaperId || !item) return
-  if (!confirm('确认删除该结构化图表?')) return
+  if (!confirm('确认删除该论文图表?')) return
   store.diagramLoading = true
   try {
     await api.deleteDiagram(store.currentPaperId, item.id)
@@ -430,12 +587,6 @@ async function checkAi() {
     }
   } catch { /* 保持默认 */ }
 }
-async function loadChartTypes() {
-  try {
-    const data = await api.chartTypes()
-    if (data.types && data.types.length) store.chartTypes = data.types
-  } catch { /* 使用内置默认 */ }
-}
 function syncTopbar() {
   const top = document.querySelector('.sticky-top')
   if (!top) return
@@ -448,7 +599,6 @@ function onResize() { syncTopbar() }
 onMounted(() => {
   store.history = loadHistory()
   checkAi()
-  loadChartTypes()
   syncTopbar()
   window.addEventListener('resize', onResize)
 })
@@ -480,7 +630,7 @@ onUnmounted(() => {
         <div class="container nav-inner">
           <a class="active" href="#topicView">论文选题</a>
           <a href="#fillPanel">论文生成</a>
-          <a href="#diagramWorkspace" @click.prevent="openDiagramWorkspace">结构化图表</a>
+          <a href="#diagramWorkspace" @click.prevent="openDiagramWorkspace">论文图表</a>
           <a href="#historyWrap">历史记录</a>
           <a href="#siteFooter">关于系统</a>
         </div>
@@ -631,8 +781,8 @@ onUnmounted(() => {
         <div v-else-if="store.view === 'diagrams'" id="diagramWorkspace" class="diagram-workspace">
           <div class="view-head">
             <div>
-              <div class="section-title">结构化图表</div>
-              <p class="topic-hint">可创建、编辑、保存并重新加载 Diagram JSON。</p>
+              <div class="section-title">论文图表</div>
+              <p class="topic-hint">统一管理论文中的推荐图、已生成图和放置位置。</p>
             </div>
             <button class="btn btn-outline" type="button" @click="store.view = store.payload ? 'result' : 'topic'">返回</button>
           </div>
@@ -641,35 +791,62 @@ onUnmounted(() => {
             <div v-if="!store.diagramEditorOpen" class="diagram-panel-main">
               <div class="chart-panel-head">
                 <h3>图表列表</h3>
-                <div class="chart-add">
-                  <select v-model="autoDiagramType" data-testid="auto-diagram-type" :disabled="!store.currentPaperId || store.diagramLoading">
-                    <option v-for="item in AUTO_DIAGRAM_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
-                  </select>
-                  <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram">自动生成</button>
-                  <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
-                  <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
-                  <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
-                </div>
+                <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
               </div>
-              <div v-if="store.diagrams.length" class="diagram-list">
-                <article v-for="diagram in store.diagrams" :key="diagram.id" class="diagram-list-item">
-                  <div>
-                    <b>{{ diagram.title }}</b>
-                    <span>{{ diagram.type }} · 版本 {{ diagram.version }}</span>
-                  </div>
-                  <div class="diagram-list-actions">
-                    <button class="btn-mini" type="button" data-testid="open-diagram" @click="openDiagram(diagram)">编辑图表</button>
-                    <button class="btn-mini danger" type="button" @click="deleteDiagram(diagram)">删除</button>
-                  </div>
+              <div class="figure-create">
+                <select v-model="newFigureType" class="select" data-testid="new-figure-type" :disabled="!store.currentPaperId" @change="syncNewFigureDefaults">
+                  <option v-for="item in FIGURE_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
+                </select>
+                <input v-model="newFigureTitle" class="text-input" data-testid="new-figure-title" placeholder="图表名称" />
+                <select v-model="newFigureChapterKey" class="select" data-testid="new-figure-chapter">
+                  <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
+                </select>
+                <input v-model="newFigureSectionKey" class="text-input" placeholder="小节位置" />
+                <input v-model.number="newFigureSortOrder" class="text-input order-input" type="number" placeholder="顺序" />
+                <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram()">自动生成</button>
+                <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
+              </div>
+              <div v-if="figureRows.length" class="diagram-list figure-list">
+                <article v-for="row in figureRows" :key="row.key" class="diagram-list-item figure-list-item">
+                  <template v-if="row.kind === 'diagram'">
+                    <div class="figure-main">
+                      <b>{{ figureNumber(row.diagram) }} {{ row.diagram.caption || row.diagram.title }}</b>
+                      <span>{{ figureTypeLabel(row.diagram.type) }} · {{ placementLabel(row.diagram) }} · 版本 {{ row.diagram.version }}</span>
+                      <div class="figure-placement">
+                        <select v-model="row.diagram.chapterKey" class="select">
+                          <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
+                        </select>
+                        <input v-model="row.diagram.sectionKey" class="text-input" placeholder="小节位置" />
+                        <input v-model.number="row.diagram.sortOrder" class="text-input order-input" type="number" />
+                        <label class="inline-check"><input v-model="row.diagram.isEnabled" type="checkbox" /> 纳入论文</label>
+                      </div>
+                    </div>
+                    <div class="diagram-list-actions">
+                      <button class="btn-mini" type="button" data-testid="open-diagram" @click="openDiagram(row.diagram)">编辑</button>
+                      <button class="btn-mini" type="button" @click="updateDiagramPlacement(row.diagram)">移动保存</button>
+                      <button class="btn-mini" type="button" @click="regenerateDiagram(row.diagram)">重新生成</button>
+                      <button class="btn-mini danger" type="button" @click="deleteDiagram(row.diagram)">删除</button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="figure-main">
+                      <b>{{ row.suggestion.caption }}</b>
+                      <span>系统推荐 · {{ figureTypeLabel(row.suggestion.type) }} · {{ row.suggestion.chapterKey }}</span>
+                    </div>
+                    <div class="diagram-list-actions">
+                      <button class="btn-mini" type="button" @click="generateFromSuggestion(row.suggestion)">生成并编辑</button>
+                      <button class="btn-mini" type="button" @click="ignoreSuggestion(row.suggestion)">忽略</button>
+                    </div>
+                  </template>
                 </article>
               </div>
               <div v-else class="empty-state diagram-empty">
-                <p class="empty-main">暂无结构化图表</p>
-                <p class="field-tip">创建后可编辑节点、文字、连线并保存。</p>
+                <p class="empty-main">暂无论文图表</p>
+                <p class="field-tip">先生成论文后，可接受推荐或新增图表。</p>
               </div>
             </div>
 
-            <DiagramEditor
+            <DiagramEditorRouter
               v-else-if="store.activeDiagram"
               :diagram="store.activeDiagram"
               :saving="store.diagramSaving"
@@ -717,58 +894,67 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="chart-panel">
-            <div class="chart-panel-head">
-              <h3>生图清单(填写素材后点击「生成图表」)</h3>
-              <div class="chart-add">
-                <select v-model="chartTypeSel">
-                  <option v-for="t in store.chartTypes" :key="t.type" :value="t.type">{{ t.label }}</option>
-                </select>
-                <select v-model="chartPosSel">
-                  <option v-for="p in CHART_POSITIONS" :key="p" :value="p">{{ p }}</option>
-                </select>
-                <button class="btn-mini" type="button" @click="addChartItem">添加图表</button>
-              </div>
-            </div>
-            <ChartItem v-for="s in chartList" :key="s.fig + '|' + s.title + '|' + (s.prompt ? 'p' : '')"
-              :item="s" :deleteable="store.chartExtras.includes(s)"
-              @changed="chartChanged" @delete="deleteChartItem(s)" />
-          </div>
-
           <div class="diagram-panel" data-testid="diagram-panel">
             <p v-if="store.diagramMessage" class="note">{{ store.diagramMessage }}</p>
             <div v-if="!store.diagramEditorOpen" class="diagram-panel-main">
               <div class="chart-panel-head">
-                <h3>结构化图表</h3>
-                <div class="chart-add">
-                  <select v-model="autoDiagramType" data-testid="auto-diagram-type" :disabled="!store.currentPaperId || store.diagramLoading">
-                    <option v-for="item in AUTO_DIAGRAM_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
-                  </select>
-                  <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram">自动生成</button>
-                  <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
-                  <button class="btn-mini" type="button" data-testid="create-sample-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('sample')">创建示例架构图</button>
-                  <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
-                </div>
+                <h3>论文图表</h3>
+                <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
               </div>
-              <div v-if="store.diagrams.length" class="diagram-list">
-                <article v-for="diagram in store.diagrams" :key="diagram.id" class="diagram-list-item">
-                  <div>
-                    <b>{{ diagram.title }}</b>
-                    <span>{{ diagram.type }} · 版本 {{ diagram.version }}</span>
-                  </div>
-                  <div class="diagram-list-actions">
-                    <button class="btn-mini" type="button" data-testid="open-diagram" @click="openDiagram(diagram)">编辑图表</button>
-                    <button class="btn-mini danger" type="button" @click="deleteDiagram(diagram)">删除</button>
-                  </div>
+              <div class="figure-create">
+                <select v-model="newFigureType" class="select" data-testid="new-figure-type" :disabled="!store.currentPaperId" @change="syncNewFigureDefaults">
+                  <option v-for="item in FIGURE_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
+                </select>
+                <input v-model="newFigureTitle" class="text-input" data-testid="new-figure-title" placeholder="图表名称" />
+                <select v-model="newFigureChapterKey" class="select" data-testid="new-figure-chapter">
+                  <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
+                </select>
+                <input v-model="newFigureSectionKey" class="text-input" placeholder="小节位置" />
+                <input v-model.number="newFigureSortOrder" class="text-input order-input" type="number" placeholder="顺序" />
+                <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram()">自动生成</button>
+                <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
+              </div>
+              <div v-if="figureRows.length" class="diagram-list figure-list">
+                <article v-for="row in figureRows" :key="row.key" class="diagram-list-item figure-list-item">
+                  <template v-if="row.kind === 'diagram'">
+                    <div class="figure-main">
+                      <b>{{ figureNumber(row.diagram) }} {{ row.diagram.caption || row.diagram.title }}</b>
+                      <span>{{ figureTypeLabel(row.diagram.type) }} · {{ placementLabel(row.diagram) }} · 版本 {{ row.diagram.version }}</span>
+                      <div class="figure-placement">
+                        <select v-model="row.diagram.chapterKey" class="select">
+                          <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
+                        </select>
+                        <input v-model="row.diagram.sectionKey" class="text-input" placeholder="小节位置" />
+                        <input v-model.number="row.diagram.sortOrder" class="text-input order-input" type="number" />
+                        <label class="inline-check"><input v-model="row.diagram.isEnabled" type="checkbox" /> 纳入论文</label>
+                      </div>
+                    </div>
+                    <div class="diagram-list-actions">
+                      <button class="btn-mini" type="button" data-testid="open-diagram" @click="openDiagram(row.diagram)">编辑</button>
+                      <button class="btn-mini" type="button" @click="updateDiagramPlacement(row.diagram)">移动保存</button>
+                      <button class="btn-mini" type="button" @click="regenerateDiagram(row.diagram)">重新生成</button>
+                      <button class="btn-mini danger" type="button" @click="deleteDiagram(row.diagram)">删除</button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="figure-main">
+                      <b>{{ row.suggestion.caption }}</b>
+                      <span>系统推荐 · {{ figureTypeLabel(row.suggestion.type) }} · {{ row.suggestion.chapterKey }}</span>
+                    </div>
+                    <div class="diagram-list-actions">
+                      <button class="btn-mini" type="button" @click="generateFromSuggestion(row.suggestion)">生成并编辑</button>
+                      <button class="btn-mini" type="button" @click="ignoreSuggestion(row.suggestion)">忽略</button>
+                    </div>
+                  </template>
                 </article>
               </div>
               <div v-else class="empty-state diagram-empty">
-                <p class="empty-main">暂无结构化图表</p>
-                <p class="field-tip">创建后可编辑节点、文字、连线并保存。</p>
+                <p class="empty-main">暂无论文图表</p>
+                <p class="field-tip">可以接受系统推荐，也可以新增自定义图表。</p>
               </div>
             </div>
 
-            <DiagramEditor
+            <DiagramEditorRouter
               v-else-if="store.activeDiagram"
               :diagram="store.activeDiagram"
               :saving="store.diagramSaving"

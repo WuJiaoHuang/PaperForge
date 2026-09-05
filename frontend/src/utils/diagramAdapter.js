@@ -1,17 +1,52 @@
 const DEFAULT_SIZE = { width: 160, height: 56 }
 
-export function createEmptyDiagram({ id = '', title = '未命名图表', type = 'generic', chapterKey = 'ch4' } = {}) {
-  return {
+export function createEmptyDiagram({
+  id = '',
+  title = '未命名图表',
+  type = 'generic',
+  chapterKey = 'ch4',
+  sectionKey = '',
+  sortOrder = 0,
+  isEnabled = true,
+} = {}) {
+  const base = {
     id,
     title,
+    caption: title,
     type,
     chapterKey,
+    sectionKey,
+    sortOrder,
+    isEnabled,
     version: 1,
     nodes: [],
     edges: [],
+    sequence: null,
+    usecase: null,
     viewport: { x: 0, y: 0, zoom: 1 },
     metadata: {},
   }
+  if (type === 'sequence') {
+    base.sequence = {
+      participants: [
+        { id: 'user', name: '用户' },
+        { id: 'frontend', name: '前端' },
+        { id: 'backend', name: '后端' },
+      ],
+      messages: [
+        { id: 'msg_1', from: 'user', to: 'frontend', text: '提交请求', order: 1 },
+        { id: 'msg_2', from: 'frontend', to: 'backend', text: '调用接口', order: 2 },
+      ],
+    }
+  }
+  if (type === 'usecase') {
+    base.usecase = {
+      actors: [{ id: 'user', name: '用户' }],
+      usecases: [{ id: 'uc_1', name: '使用系统' }],
+      relations: [{ actor: 'user', usecase: 'uc_1' }],
+    }
+  }
+  return base
 }
 
 export function createSampleArchitecture(title = '系统架构图') {
