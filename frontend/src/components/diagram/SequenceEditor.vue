@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import DiagramPreview from './DiagramPreview.vue'
 
 const props = defineProps({
   diagram: { type: Object, required: true },
@@ -114,40 +115,47 @@ function save() {
       </div>
     </header>
 
-    <div class="structured-editor-grid">
-      <section class="structured-panel">
-        <div class="chart-panel-head">
-          <h3>参与者</h3>
-          <button class="btn-mini" type="button" data-testid="add-participant" @click="addParticipant">新增</button>
-        </div>
-        <div class="structured-list">
-          <article v-for="participant in draft.sequence.participants" :key="participant.id" class="structured-row">
-            <input v-model="participant.name" class="text-input" data-testid="participant-name" />
-            <button class="btn-mini danger" type="button" @click="removeParticipant(participant.id)">删除</button>
-          </article>
-        </div>
-      </section>
+    <div class="structured-preview-layout">
+      <div class="structured-edit-stack">
+        <section class="structured-panel">
+          <div class="chart-panel-head">
+            <h3>参与者</h3>
+            <button class="btn-mini" type="button" data-testid="add-participant" @click="addParticipant">新增</button>
+          </div>
+          <div class="structured-list">
+            <article v-for="participant in draft.sequence.participants" :key="participant.id" class="structured-row">
+              <input v-model="participant.name" class="text-input" data-testid="participant-name" />
+              <button class="btn-mini danger" type="button" @click="removeParticipant(participant.id)">删除</button>
+            </article>
+          </div>
+        </section>
 
-      <section class="structured-panel">
-        <div class="chart-panel-head">
-          <h3>消息</h3>
-          <button class="btn-mini" type="button" data-testid="add-message" @click="addMessage">新增</button>
-        </div>
-        <div class="structured-list">
-          <article v-for="message in orderedMessages" :key="message.id" class="message-row">
-            <select v-model="message.from" class="select" data-testid="message-from">
-              <option v-for="participant in draft.sequence.participants" :key="participant.id" :value="participant.id">{{ participant.name }}</option>
-            </select>
-            <select v-model="message.to" class="select" data-testid="message-to">
-              <option v-for="participant in draft.sequence.participants" :key="participant.id" :value="participant.id">{{ participant.name }}</option>
-            </select>
-            <input v-model="message.text" class="text-input" data-testid="message-text" />
-            <button class="btn-mini" type="button" @click="moveMessage(message.id, -1)">上移</button>
-            <button class="btn-mini" type="button" @click="moveMessage(message.id, 1)">下移</button>
-            <button class="btn-mini danger" type="button" @click="removeMessage(message.id)">删除</button>
-          </article>
-        </div>
-      </section>
+        <section class="structured-panel">
+          <div class="chart-panel-head">
+            <h3>消息</h3>
+            <button class="btn-mini" type="button" data-testid="add-message" @click="addMessage">新增</button>
+          </div>
+          <div class="structured-list">
+            <article v-for="message in orderedMessages" :key="message.id" class="message-row">
+              <select v-model="message.from" class="select" data-testid="message-from">
+                <option v-for="participant in draft.sequence.participants" :key="participant.id" :value="participant.id">{{ participant.name }}</option>
+              </select>
+              <select v-model="message.to" class="select" data-testid="message-to">
+                <option v-for="participant in draft.sequence.participants" :key="participant.id" :value="participant.id">{{ participant.name }}</option>
+              </select>
+              <input v-model="message.text" class="text-input" data-testid="message-text" />
+              <button class="btn-mini" type="button" @click="moveMessage(message.id, -1)">上移</button>
+              <button class="btn-mini" type="button" @click="moveMessage(message.id, 1)">下移</button>
+              <button class="btn-mini danger" type="button" @click="removeMessage(message.id)">删除</button>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <aside class="structured-preview-panel">
+        <div class="field-label">实时预览</div>
+        <DiagramPreview :diagram="draft" />
+      </aside>
     </div>
   </section>
 </template>

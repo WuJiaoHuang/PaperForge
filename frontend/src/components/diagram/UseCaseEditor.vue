@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import DiagramPreview from './DiagramPreview.vue'
 
 const props = defineProps({
   diagram: { type: Object, required: true },
@@ -87,44 +88,51 @@ function save() {
       </div>
     </header>
 
-    <div class="structured-editor-grid usecase-grid">
-      <section class="structured-panel">
-        <div class="chart-panel-head">
-          <h3>参与者</h3>
-          <button class="btn-mini" type="button" data-testid="add-actor" @click="addActor">新增</button>
-        </div>
-        <article v-for="actor in draft.usecase.actors" :key="actor.id" class="structured-row">
-          <input v-model="actor.name" class="text-input" data-testid="actor-name" />
-          <button class="btn-mini danger" type="button" @click="removeActor(actor.id)">删除</button>
-        </article>
-      </section>
+    <div class="structured-preview-layout">
+      <div class="structured-edit-stack">
+        <section class="structured-panel">
+          <div class="chart-panel-head">
+            <h3>参与者</h3>
+            <button class="btn-mini" type="button" data-testid="add-actor" @click="addActor">新增</button>
+          </div>
+          <article v-for="actor in draft.usecase.actors" :key="actor.id" class="structured-row">
+            <input v-model="actor.name" class="text-input" data-testid="actor-name" />
+            <button class="btn-mini danger" type="button" @click="removeActor(actor.id)">删除</button>
+          </article>
+        </section>
 
-      <section class="structured-panel">
-        <div class="chart-panel-head">
-          <h3>用例</h3>
-          <button class="btn-mini" type="button" data-testid="add-usecase" @click="addUsecase">新增</button>
-        </div>
-        <article v-for="usecase in draft.usecase.usecases" :key="usecase.id" class="structured-row">
-          <input v-model="usecase.name" class="text-input" data-testid="usecase-name" />
-          <button class="btn-mini danger" type="button" @click="removeUsecase(usecase.id)">删除</button>
-        </article>
-      </section>
+        <section class="structured-panel">
+          <div class="chart-panel-head">
+            <h3>用例</h3>
+            <button class="btn-mini" type="button" data-testid="add-usecase" @click="addUsecase">新增</button>
+          </div>
+          <article v-for="usecase in draft.usecase.usecases" :key="usecase.id" class="structured-row">
+            <input v-model="usecase.name" class="text-input" data-testid="usecase-name" />
+            <button class="btn-mini danger" type="button" @click="removeUsecase(usecase.id)">删除</button>
+          </article>
+        </section>
 
-      <section class="structured-panel">
-        <div class="chart-panel-head">
-          <h3>关联</h3>
-          <button class="btn-mini" type="button" data-testid="add-relation" @click="addRelation">新增</button>
-        </div>
-        <article v-for="(relation, index) in relations" :key="index" class="relation-row">
-          <select v-model="relation.actor" class="select" data-testid="relation-actor">
-            <option v-for="actor in draft.usecase.actors" :key="actor.id" :value="actor.id">{{ actor.name }}</option>
-          </select>
-          <select v-model="relation.usecase" class="select" data-testid="relation-usecase">
-            <option v-for="usecase in draft.usecase.usecases" :key="usecase.id" :value="usecase.id">{{ usecase.name }}</option>
-          </select>
-          <button class="btn-mini danger" type="button" @click="removeRelation(index)">删除</button>
-        </article>
-      </section>
+        <section class="structured-panel">
+          <div class="chart-panel-head">
+            <h3>关联</h3>
+            <button class="btn-mini" type="button" data-testid="add-relation" @click="addRelation">新增</button>
+          </div>
+          <article v-for="(relation, index) in relations" :key="index" class="relation-row">
+            <select v-model="relation.actor" class="select" data-testid="relation-actor">
+              <option v-for="actor in draft.usecase.actors" :key="actor.id" :value="actor.id">{{ actor.name }}</option>
+            </select>
+            <select v-model="relation.usecase" class="select" data-testid="relation-usecase">
+              <option v-for="usecase in draft.usecase.usecases" :key="usecase.id" :value="usecase.id">{{ usecase.name }}</option>
+            </select>
+            <button class="btn-mini danger" type="button" @click="removeRelation(index)">删除</button>
+          </article>
+        </section>
+      </div>
+
+      <aside class="structured-preview-panel">
+        <div class="field-label">实时预览</div>
+        <DiagramPreview :diagram="draft" />
+      </aside>
     </div>
   </section>
 </template>

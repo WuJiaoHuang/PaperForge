@@ -603,6 +603,7 @@ body {
 .chart-download .btn-mini { text-decoration: none; display: inline-block; }
 .btn-mini.danger { border-color: #a33b3b; color: #a33b3b; }
 .btn-mini.danger:hover:not(:disabled) { background: #a33b3b; color: #fff; }
+.btn-mini.primary-mini { background: var(--blue); color: #fff; border-color: var(--blue); }
 
 .diagram-panel {
   margin-top: 24px;
@@ -742,6 +743,118 @@ body {
   color: var(--muted);
 }
 
+.figure-manager {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 16px;
+  min-height: calc(100vh - var(--topbar-h) - 190px);
+}
+.figure-sidebar {
+  position: sticky;
+  top: calc(var(--topbar-h) + 14px);
+  align-self: start;
+  display: grid;
+  gap: 8px;
+  max-height: calc(100vh - var(--topbar-h) - 32px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 10px;
+}
+.figure-filter {
+  border: 1px solid transparent;
+  background: #fff;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+.figure-filter:hover,
+.figure-filter.active {
+  border-color: var(--blue);
+  background: #f6f8fb;
+}
+.figure-filter b {
+  font-size: 12px;
+  color: var(--muted);
+}
+.figure-manager-main {
+  min-width: 0;
+  max-height: calc(100vh - var(--topbar-h) - 190px);
+  overflow: auto;
+  padding-right: 4px;
+}
+.figure-manager-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 12px;
+  background: #fff;
+}
+.figure-manager-head h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: var(--blue-dark);
+}
+.figure-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+.figure-card {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.figure-card.suggestion {
+  border-style: dashed;
+  background: #fcfcfd;
+}
+.figure-card-body b {
+  display: block;
+  font-family: "SimSun", "Microsoft YaHei", serif;
+  color: #111827;
+  margin-bottom: 4px;
+}
+.figure-card-body span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.figure-recommend-preview {
+  min-height: 150px;
+  border: 1px dashed #aab4c0;
+  background: #fff;
+  color: #2f3a46;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "SimSun", "Microsoft YaHei", serif;
+  font-size: 16px;
+}
+.chapter-figure-strip {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
 .figure-create {
   display: grid;
   grid-template-columns: 150px minmax(160px, 1fr) 190px minmax(120px, 1fr) 78px auto auto;
@@ -819,6 +932,123 @@ body {
 .relation-row {
   grid-template-columns: minmax(120px, 1fr) minmax(140px, 1fr) auto;
 }
+.structured-preview-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(360px, 0.95fr);
+  gap: 14px;
+  padding: 14px;
+}
+.structured-edit-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.structured-preview-panel {
+  position: sticky;
+  top: calc(var(--topbar-h) + 14px);
+  align-self: start;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 12px;
+}
+.diagram-preview {
+  width: 100%;
+  min-height: 230px;
+  border: 1px solid var(--line);
+  background: #fff;
+  overflow: hidden;
+}
+.diagram-preview.compact {
+  min-height: 150px;
+}
+.diagram-preview svg {
+  width: 100%;
+  height: 100%;
+  min-height: 230px;
+  display: block;
+  background: #fff;
+}
+.diagram-preview.compact svg {
+  min-height: 150px;
+}
+.preview-box,
+.preview-ellipse {
+  fill: #fff;
+  stroke: #2f3a46;
+  stroke-width: 1.2;
+}
+.preview-boundary {
+  fill: none;
+  stroke: #2f3a46;
+  stroke-width: 1.1;
+}
+.preview-line {
+  stroke: #2f3a46;
+  stroke-width: 1.2;
+  fill: none;
+}
+.preview-line.plain {
+  marker-end: none;
+}
+.preview-dash {
+  stroke: #6b7280;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+.preview-stroke {
+  fill: #fff;
+  stroke: #2f3a46;
+  stroke-width: 1.2;
+}
+.preview-text {
+  fill: #111827;
+  font-family: "SimSun", "Songti SC", "Microsoft YaHei", serif;
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+.preview-text.small {
+  font-size: 11px;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(15, 23, 42, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-panel {
+  width: min(680px, 100%);
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.16);
+}
+.modal-panel.small {
+  width: min(520px, 100%);
+}
+.modal-head,
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-actions {
+  justify-content: flex-end;
+  border-bottom: none;
+  border-top: 1px solid var(--line);
+}
+.modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 16px;
+}
 
 /* ---------- 页脚 ---------- */
 .site-footer {
@@ -840,12 +1070,27 @@ body {
   .toc { position: static; max-height: none; }
   .diagram-shell { grid-template-columns: 120px 1fr; }
   .diagram-properties { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); }
+  .figure-manager,
+  .structured-preview-layout {
+    grid-template-columns: 1fr;
+  }
+  .figure-sidebar,
+  .figure-manager-head,
+  .structured-preview-panel {
+    position: static;
+  }
+  .figure-manager-main {
+    max-height: none;
+  }
   .figure-create,
   .figure-placement,
   .structured-editor-grid,
   .structured-editor-grid.usecase-grid,
   .message-row,
   .relation-row {
+    grid-template-columns: 1fr;
+  }
+  .modal-grid {
     grid-template-columns: 1fr;
   }
 }

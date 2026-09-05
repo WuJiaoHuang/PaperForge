@@ -4,6 +4,7 @@ import { api } from './api'
 import { DEFAULT_TECHS, STAGE_NAMES, TECH_PRESETS, store } from './store'
 import { downloadBlob, loadHistory, saveHistory } from './utils'
 import ChapterCard from './components/ChapterCard.vue'
+import DiagramPreview from './components/diagram/DiagramPreview.vue'
 import DiagramEditorRouter from './components/diagram/DiagramEditorRouter.vue'
 import { createEmptyDiagram, createSampleArchitecture } from './utils/diagramAdapter'
 import { layoutDiagramDocument } from './utils/diagramLayout'
@@ -14,6 +15,9 @@ const newFigureTitle = ref('系统架构图')
 const newFigureChapterKey = ref('ch4')
 const newFigureSectionKey = ref('design_architecture')
 const newFigureSortOrder = ref(0)
+const figureFilter = ref('all')
+const figureAddOpen = ref(false)
+const figureMoveTarget = ref(null)
 const designShown = ref(false)
 
 const FIGURE_TYPES = [
@@ -223,6 +227,24 @@ const figureRows = computed(() => {
   const diagrams = sortedDiagrams.value.map((diagram) => ({ kind: 'diagram', key: diagram.id, diagram }))
   return diagrams.concat(suggestions)
 })
+const filteredFigureRows = computed(() => figureRows.value.filter((row) => {
+  if (figureFilter.value === 'all') return true
+  if (figureFilter.value === 'recommended') return row.kind === 'suggestion'
+  const chapterKey = row.kind === 'diagram' ? row.diagram.chapterKey : row.suggestion.chapterKey
+  return chapterKey === figureFilter.value
+}))
+const figureFilterOptions = computed(() => [
+  { key: 'all', label: '全部图表', count: figureRows.value.length },
+  { key: 'recommended', label: '系统推荐', count: figureRows.value.filter((row) => row.kind === 'suggestion').length },
+  ...chapterOptions.value.map((chapter) => ({
+    key: chapter.key,
+    label: chapter.title,
+    count: figureRows.value.filter((row) => {
+      const chapterKey = row.kind === 'diagram' ? row.diagram.chapterKey : row.suggestion.chapterKey
+      return chapterKey === chapter.key
+    }).length,
+  })),
+])
 const sortedDiagrams = computed(() => [...store.diagrams].sort(compareDiagrams))
 
 function normalizeSuggestion(item, index) {
@@ -268,7 +290,21 @@ function figureNumber(diagram) {
 
 function placementLabel(diagram) {
   const chapter = chapterOptions.value.find((item) => item.key === diagram.chapterKey)
-  return (chapter?.title || diagram.chapterKey || '未设置章节') + (diagram.sectionKey ? ' / ' + diagram.sectionKey : '')
+  return (chapter?.title || diagram.chapterKey || '未设置章节') + (diagram.sectionKey ? ' / ' + sectionLabel(diagram.sectionKey) : '')
+}
+
+function sectionLabel(key) {
+  const labels = {
+    design_architecture: '系统总体架构',
+    design_modules: '功能模块设计',
+    database_design: '数据库设计',
+    implementation_flow: '业务流程实现',
+    implementation_sequence: '交互时序设计',
+    requirements_usecase: '用例分析',
+    custom_flow: '自定义流程',
+    ai_check: '智能生成校验',
+  }
+  return labels[key] || key || '未设置小节'
 }
 
 function compareDiagrams(a, b) {
@@ -278,6 +314,9 @@ function compareDiagrams(a, b) {
   if ((a.sortOrder || 0) !== (b.sortOrder || 0)) return (a.sortOrder || 0) - (b.sortOrder || 0)
   return String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
 }
+function chapterFigureCount(chapterKey) {
+  return store.diagrams.filter((diagram) => diagram.chapterKey === chapterKey && diagram.isEnabled !== false).length
+}
 function chartChanged() { /* 章节/字数变化由 computed 自动更新 */ }
 
 function resetDiagramState() {
@@ -285,6 +324,8 @@ function resetDiagramState() {
   store.diagramEditorOpen = false
   store.diagrams = []
   store.diagramMessage = ''
+  figureAddOpen.value = false
+  figureMoveTarget.value = null
   store.ignoredSuggestionKeys = []
 }
 
@@ -299,6 +340,7 @@ function switchCurrentPaper(payload) {
   resetDiagramState()
   store.payload = payload
   store.currentPaperId = payload.paper_id
+  loadIgnoredSuggestions()
 }
 
 function normalizeDiagram(item) {
@@ -343,8 +385,26 @@ async function loadDiagrams() {
 }
 
 async function openDiagramWorkspace() {
+  figureFilter.value = 'all'
   store.view = 'diagrams'
   await loadDiagrams()
+}
+
+async function openChapterFigures(chapterKey) {
+  figureFilter.value = chapterKey || 'all'
+  store.view = 'diagrams'
+  await loadDiagrams()
+}
+
+function openAddFigure() {
+  if (!store.currentPaperId) {
+    store.diagramMessage = '请先创建或生成论文'
+    return
+  }
+  if (!['all', 'recommended'].includes(figureFilter.value)) {
+    newFigureChapterKey.value = figureFilter.value
+  }
+  figureAddOpen.value = true
 }
 
 async function createDiagram(kind = 'blank') {
@@ -379,6 +439,7 @@ async function createDiagram(kind = 'blank') {
     if (!res.ok) throw new Error(data.detail || data.error || '创建图表失败')
     store.activeDiagram = normalizeDiagram(data)
     store.diagramEditorOpen = true
+    figureAddOpen.value = false
     await loadDiagrams()
   } catch (err) {
     store.diagramMessage = err.message
@@ -432,6 +493,7 @@ async function generateAutoDiagram(source = null) {
     const layouted = await layoutDiagramDocument(created)
     store.activeDiagram = await persistDiagramDocument(layouted)
     store.diagramEditorOpen = true
+    figureAddOpen.value = false
     await loadDiagrams()
     store.diagramMessage = '图表已自动生成并完成布局'
   } catch (err) {
@@ -448,6 +510,7 @@ async function generateFromSuggestion(suggestion) {
 function ignoreSuggestion(suggestion) {
   if (!store.ignoredSuggestionKeys.includes(suggestion.key)) {
     store.ignoredSuggestionKeys.push(suggestion.key)
+    saveIgnoredSuggestions()
   }
 }
 
@@ -519,12 +582,32 @@ async function updateDiagramPlacement(diagram) {
     })
     const index = store.diagrams.findIndex((item) => item.id === saved.id)
     if (index >= 0) store.diagrams[index] = saved
+    figureMoveTarget.value = null
     store.diagramMessage = '图表位置已保存'
   } catch (err) {
     store.diagramMessage = '位置保存失败:' + err.message
   } finally {
     store.diagramSaving = false
   }
+}
+
+function openMoveFigure(diagram) {
+  figureMoveTarget.value = diagram
+}
+
+function loadIgnoredSuggestions() {
+  if (!store.currentPaperId) return
+  try {
+    const raw = localStorage.getItem('paperforge_ignored_figures_' + store.currentPaperId)
+    store.ignoredSuggestionKeys = raw ? JSON.parse(raw) : []
+  } catch {
+    store.ignoredSuggestionKeys = []
+  }
+}
+
+function saveIgnoredSuggestions() {
+  if (!store.currentPaperId) return
+  localStorage.setItem('paperforge_ignored_figures_' + store.currentPaperId, JSON.stringify(store.ignoredSuggestionKeys))
 }
 
 async function deleteDiagram(item) {
@@ -782,67 +865,75 @@ onUnmounted(() => {
           <div class="view-head">
             <div>
               <div class="section-title">论文图表</div>
-              <p class="topic-hint">统一管理论文中的推荐图、已生成图和放置位置。</p>
+              <p class="topic-hint">统一管理推荐图、已生成图、缩略预览和论文放置位置。</p>
             </div>
             <button class="btn btn-outline" type="button" @click="store.view = store.payload ? 'result' : 'topic'">返回</button>
           </div>
           <div class="diagram-panel" data-testid="diagram-panel">
             <p v-if="store.diagramMessage" class="note">{{ store.diagramMessage }}</p>
             <div v-if="!store.diagramEditorOpen" class="diagram-panel-main">
-              <div class="chart-panel-head">
-                <h3>图表列表</h3>
-                <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
-              </div>
-              <div class="figure-create">
-                <select v-model="newFigureType" class="select" data-testid="new-figure-type" :disabled="!store.currentPaperId" @change="syncNewFigureDefaults">
-                  <option v-for="item in FIGURE_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
-                </select>
-                <input v-model="newFigureTitle" class="text-input" data-testid="new-figure-title" placeholder="图表名称" />
-                <select v-model="newFigureChapterKey" class="select" data-testid="new-figure-chapter">
-                  <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
-                </select>
-                <input v-model="newFigureSectionKey" class="text-input" placeholder="小节位置" />
-                <input v-model.number="newFigureSortOrder" class="text-input order-input" type="number" placeholder="顺序" />
-                <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram()">自动生成</button>
-                <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
-              </div>
-              <div v-if="figureRows.length" class="diagram-list figure-list">
-                <article v-for="row in figureRows" :key="row.key" class="diagram-list-item figure-list-item">
-                  <template v-if="row.kind === 'diagram'">
-                    <div class="figure-main">
-                      <b>{{ figureNumber(row.diagram) }} {{ row.diagram.caption || row.diagram.title }}</b>
-                      <span>{{ figureTypeLabel(row.diagram.type) }} · {{ placementLabel(row.diagram) }} · 版本 {{ row.diagram.version }}</span>
-                      <div class="figure-placement">
-                        <select v-model="row.diagram.chapterKey" class="select">
-                          <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
-                        </select>
-                        <input v-model="row.diagram.sectionKey" class="text-input" placeholder="小节位置" />
-                        <input v-model.number="row.diagram.sortOrder" class="text-input order-input" type="number" />
-                        <label class="inline-check"><input v-model="row.diagram.isEnabled" type="checkbox" /> 纳入论文</label>
-                      </div>
+              <div class="figure-manager">
+                <aside class="figure-sidebar">
+                  <button
+                    v-for="filter in figureFilterOptions"
+                    :key="filter.key"
+                    class="figure-filter"
+                    :class="{ active: figureFilter === filter.key }"
+                    type="button"
+                    @click="figureFilter = filter.key"
+                  >
+                    <span>{{ filter.label }}</span>
+                    <b>{{ filter.count }}</b>
+                  </button>
+                </aside>
+
+                <section class="figure-manager-main">
+                  <div class="figure-manager-head">
+                    <div>
+                      <h3>{{ figureFilterOptions.find((item) => item.key === figureFilter)?.label || '全部图表' }}</h3>
+                      <p class="field-tip">已生成图显示只读缩略预览，推荐图可直接生成并编辑。</p>
                     </div>
                     <div class="diagram-list-actions">
-                      <button class="btn-mini" type="button" data-testid="open-diagram" @click="openDiagram(row.diagram)">编辑</button>
-                      <button class="btn-mini" type="button" @click="updateDiagramPlacement(row.diagram)">移动保存</button>
-                      <button class="btn-mini" type="button" @click="regenerateDiagram(row.diagram)">重新生成</button>
-                      <button class="btn-mini danger" type="button" @click="deleteDiagram(row.diagram)">删除</button>
+                      <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新</button>
+                      <button class="btn-mini primary-mini" type="button" data-testid="open-add-figure" :disabled="!store.currentPaperId" @click="openAddFigure">+ 新增图表</button>
                     </div>
-                  </template>
-                  <template v-else>
-                    <div class="figure-main">
-                      <b>{{ row.suggestion.caption }}</b>
-                      <span>系统推荐 · {{ figureTypeLabel(row.suggestion.type) }} · {{ row.suggestion.chapterKey }}</span>
-                    </div>
-                    <div class="diagram-list-actions">
-                      <button class="btn-mini" type="button" @click="generateFromSuggestion(row.suggestion)">生成并编辑</button>
-                      <button class="btn-mini" type="button" @click="ignoreSuggestion(row.suggestion)">忽略</button>
-                    </div>
-                  </template>
-                </article>
-              </div>
-              <div v-else class="empty-state diagram-empty">
-                <p class="empty-main">暂无论文图表</p>
-                <p class="field-tip">先生成论文后，可接受推荐或新增图表。</p>
+                  </div>
+
+                  <div v-if="filteredFigureRows.length" class="figure-card-grid">
+                    <article v-for="row in filteredFigureRows" :key="row.key" class="figure-card" :class="{ suggestion: row.kind === 'suggestion' }">
+                      <template v-if="row.kind === 'diagram'">
+                        <DiagramPreview :diagram="row.diagram" compact />
+                        <div class="figure-card-body">
+                          <b>{{ figureNumber(row.diagram) }} {{ row.diagram.caption || row.diagram.title }}</b>
+                          <span>{{ figureTypeLabel(row.diagram.type) }}</span>
+                          <span>{{ placementLabel(row.diagram) }} · 版本 {{ row.diagram.version }}</span>
+                        </div>
+                        <div class="diagram-list-actions">
+                          <button class="btn-mini" type="button" data-testid="open-diagram" @click="openDiagram(row.diagram)">编辑</button>
+                          <button class="btn-mini" type="button" @click="openMoveFigure(row.diagram)">移动</button>
+                          <button class="btn-mini" type="button" @click="regenerateDiagram(row.diagram)">重新生成</button>
+                          <button class="btn-mini danger" type="button" @click="deleteDiagram(row.diagram)">删除</button>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <div class="figure-recommend-preview">{{ figureTypeLabel(row.suggestion.type) }}</div>
+                        <div class="figure-card-body">
+                          <b>{{ row.suggestion.caption }}</b>
+                          <span>系统推荐</span>
+                          <span>建议位置：{{ placementLabel(row.suggestion) }}</span>
+                        </div>
+                        <div class="diagram-list-actions">
+                          <button class="btn-mini" type="button" @click="generateFromSuggestion(row.suggestion)">生成并编辑</button>
+                          <button class="btn-mini" type="button" @click="ignoreSuggestion(row.suggestion)">忽略</button>
+                        </div>
+                      </template>
+                    </article>
+                  </div>
+                  <div v-else class="empty-state diagram-empty">
+                    <p class="empty-main">暂无论文图表</p>
+                    <p class="field-tip">可以接受系统推荐，也可以新增自定义图表。</p>
+                  </div>
+                </section>
               </div>
             </div>
 
@@ -864,6 +955,7 @@ onUnmounted(() => {
             </div>
             <div class="export-actions">
               <button class="btn btn-primary" type="button" @click="exportDocx">导出 Word</button>
+              <button class="btn btn-outline" type="button" @click="openDiagramWorkspace">论文图表</button>
               <button class="btn btn-outline" type="button" @click="exportMd">下载 Markdown</button>
               <button class="btn btn-outline" type="button" @click="copyAll">复制全文</button>
             </div>
@@ -890,81 +982,87 @@ onUnmounted(() => {
             <div class="chapters">
               <article v-for="c in resultChapters" :key="c.seq" :id="'chap-' + c.seq" class="chapter">
                 <ChapterCard :chapter="c" @changed="chartChanged" />
+                <div class="chapter-figure-strip">
+                  <span>本章图表 {{ chapterFigureCount(c.key) }}</span>
+                  <button class="btn-mini" type="button" @click="openChapterFigures(c.key)">管理本章图表</button>
+                </div>
               </article>
             </div>
-          </div>
-
-          <div class="diagram-panel" data-testid="diagram-panel">
-            <p v-if="store.diagramMessage" class="note">{{ store.diagramMessage }}</p>
-            <div v-if="!store.diagramEditorOpen" class="diagram-panel-main">
-              <div class="chart-panel-head">
-                <h3>论文图表</h3>
-                <button class="btn-mini" type="button" :disabled="!store.currentPaperId || store.diagramLoading" @click="loadDiagrams">刷新列表</button>
-              </div>
-              <div class="figure-create">
-                <select v-model="newFigureType" class="select" data-testid="new-figure-type" :disabled="!store.currentPaperId" @change="syncNewFigureDefaults">
-                  <option v-for="item in FIGURE_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
-                </select>
-                <input v-model="newFigureTitle" class="text-input" data-testid="new-figure-title" placeholder="图表名称" />
-                <select v-model="newFigureChapterKey" class="select" data-testid="new-figure-chapter">
-                  <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
-                </select>
-                <input v-model="newFigureSectionKey" class="text-input" placeholder="小节位置" />
-                <input v-model.number="newFigureSortOrder" class="text-input order-input" type="number" placeholder="顺序" />
-                <button class="btn-mini" type="button" data-testid="generate-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="generateAutoDiagram()">自动生成</button>
-                <button class="btn-mini" type="button" data-testid="create-blank-diagram" :disabled="!store.currentPaperId || store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
-              </div>
-              <div v-if="figureRows.length" class="diagram-list figure-list">
-                <article v-for="row in figureRows" :key="row.key" class="diagram-list-item figure-list-item">
-                  <template v-if="row.kind === 'diagram'">
-                    <div class="figure-main">
-                      <b>{{ figureNumber(row.diagram) }} {{ row.diagram.caption || row.diagram.title }}</b>
-                      <span>{{ figureTypeLabel(row.diagram.type) }} · {{ placementLabel(row.diagram) }} · 版本 {{ row.diagram.version }}</span>
-                      <div class="figure-placement">
-                        <select v-model="row.diagram.chapterKey" class="select">
-                          <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
-                        </select>
-                        <input v-model="row.diagram.sectionKey" class="text-input" placeholder="小节位置" />
-                        <input v-model.number="row.diagram.sortOrder" class="text-input order-input" type="number" />
-                        <label class="inline-check"><input v-model="row.diagram.isEnabled" type="checkbox" /> 纳入论文</label>
-                      </div>
-                    </div>
-                    <div class="diagram-list-actions">
-                      <button class="btn-mini" type="button" data-testid="open-diagram" @click="openDiagram(row.diagram)">编辑</button>
-                      <button class="btn-mini" type="button" @click="updateDiagramPlacement(row.diagram)">移动保存</button>
-                      <button class="btn-mini" type="button" @click="regenerateDiagram(row.diagram)">重新生成</button>
-                      <button class="btn-mini danger" type="button" @click="deleteDiagram(row.diagram)">删除</button>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="figure-main">
-                      <b>{{ row.suggestion.caption }}</b>
-                      <span>系统推荐 · {{ figureTypeLabel(row.suggestion.type) }} · {{ row.suggestion.chapterKey }}</span>
-                    </div>
-                    <div class="diagram-list-actions">
-                      <button class="btn-mini" type="button" @click="generateFromSuggestion(row.suggestion)">生成并编辑</button>
-                      <button class="btn-mini" type="button" @click="ignoreSuggestion(row.suggestion)">忽略</button>
-                    </div>
-                  </template>
-                </article>
-              </div>
-              <div v-else class="empty-state diagram-empty">
-                <p class="empty-main">暂无论文图表</p>
-                <p class="field-tip">可以接受系统推荐，也可以新增自定义图表。</p>
-              </div>
-            </div>
-
-            <DiagramEditorRouter
-              v-else-if="store.activeDiagram"
-              :diagram="store.activeDiagram"
-              :saving="store.diagramSaving"
-              @save="saveDiagram"
-              @close="store.diagramEditorOpen = false"
-            />
           </div>
         </div>
       </section>
     </main>
+
+    <div v-if="figureAddOpen" class="modal-backdrop" data-testid="figure-add-modal">
+      <section class="modal-panel">
+        <header class="modal-head">
+          <div class="section-title">新增图表</div>
+          <button class="btn-mini" type="button" @click="figureAddOpen = false">关闭</button>
+        </header>
+        <div class="modal-grid">
+          <label class="diagram-field">
+            <span>图表类型</span>
+            <select v-model="newFigureType" class="select" data-testid="new-figure-type" @change="syncNewFigureDefaults">
+              <option v-for="item in FIGURE_TYPES" :key="item.type" :value="item.type">{{ item.title }}</option>
+            </select>
+          </label>
+          <label class="diagram-field">
+            <span>caption</span>
+            <input v-model="newFigureTitle" class="text-input" data-testid="new-figure-title" />
+          </label>
+          <label class="diagram-field">
+            <span>章节</span>
+            <select v-model="newFigureChapterKey" class="select" data-testid="new-figure-chapter">
+              <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
+            </select>
+          </label>
+          <label class="diagram-field">
+            <span>小节</span>
+            <input v-model="newFigureSectionKey" class="text-input" :placeholder="sectionLabel(newFigureSectionKey)" />
+          </label>
+          <label class="diagram-field">
+            <span>排序</span>
+            <input v-model.number="newFigureSortOrder" class="text-input" type="number" />
+          </label>
+        </div>
+        <footer class="modal-actions">
+          <button class="btn btn-primary" type="button" data-testid="generate-diagram" :disabled="store.diagramLoading" @click="generateAutoDiagram()">自动生成并编辑</button>
+          <button class="btn btn-outline" type="button" data-testid="create-blank-diagram" :disabled="store.diagramLoading" @click="createDiagram('blank')">创建空白图</button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="figureMoveTarget" class="modal-backdrop" data-testid="figure-move-modal">
+      <section class="modal-panel small">
+        <header class="modal-head">
+          <div class="section-title">移动图表</div>
+          <button class="btn-mini" type="button" @click="figureMoveTarget = null">关闭</button>
+        </header>
+        <div class="modal-grid">
+          <label class="diagram-field">
+            <span>章节</span>
+            <select v-model="figureMoveTarget.chapterKey" class="select" data-testid="move-chapter">
+              <option v-for="chapter in chapterOptions" :key="chapter.key" :value="chapter.key">{{ chapter.title }}</option>
+            </select>
+          </label>
+          <label class="diagram-field">
+            <span>小节</span>
+            <input v-model="figureMoveTarget.sectionKey" class="text-input" data-testid="move-section" />
+          </label>
+          <label class="diagram-field">
+            <span>顺序</span>
+            <input v-model.number="figureMoveTarget.sortOrder" class="text-input" data-testid="move-order" type="number" />
+          </label>
+          <label class="inline-check">
+            <input v-model="figureMoveTarget.isEnabled" type="checkbox" />
+            纳入论文
+          </label>
+        </div>
+        <footer class="modal-actions">
+          <button class="btn btn-primary" type="button" data-testid="save-move" :disabled="store.diagramSaving" @click="updateDiagramPlacement(figureMoveTarget)">保存位置</button>
+        </footer>
+      </section>
+    </div>
 
     <footer class="site-footer" id="siteFooter">
       <div class="container">
